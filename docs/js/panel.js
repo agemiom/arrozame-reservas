@@ -39,11 +39,14 @@ $("#form-login").addEventListener("submit", async (e) => {
   try { entrar(await datos.login(f.email.value, f.password.value)); }
   catch (err) { $("#login-error").textContent = err.message; $("#login-error").classList.remove("oculto"); }
 });
-$("#salir").onclick = async () => { await datos.logout(); location.reload(); };
+const salir = async () => { await datos.logout(); location.reload(); };
+$("#salir").onclick = salir;
+$("#salir-movil").onclick = salir;
 
 async function entrar(u) {
   $("#login").classList.add("oculto"); $("#app").classList.remove("oculto");
   $("#usuario").textContent = u.email;
+  $("#usuario-movil").textContent = u.email;
   await recargar();
   const v = location.hash.slice(1);
   ir(["agenda", "calendario", "estadisticas", "clientes", "carta", "ajustes"].includes(v) ? v : "agenda");

@@ -263,7 +263,8 @@ function mostrarExito(r, c, f) {
     <div class="botones" style="margin-top:0">
       <a class="btn sec chico" href="${icsHref}" ${esIOS ? "" : `download="arrozame-${r.codigo}.ics"`}>📅 Apple / iPhone</a>
       <a class="btn sec chico" href="${gcal}" target="_blank" rel="noopener">📅 Google Calendar</a>
-    </div>`;
+    </div>
+    <p style="margin-top:22px"><a href="./" class="small">← Volver al inicio / hacer otra reserva</a></p>`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
