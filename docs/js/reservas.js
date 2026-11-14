@@ -118,8 +118,8 @@ async function pintarCalendario() {
     // el pedido no entra ese día: un evento grande necesita el día libre; uno normal, que alcancen las raciones
     const grande = excedeCapacidad();
     const sinCupo = !pasado && !lleno && (grande ? (info.eventos || 0) > 0 : (info.raciones || 0) + calculo().raciones > maxRacionesDia());
-    const nota = pasado ? "" : lleno ? "agenda llena" : sinCupo ? "sin cupo" : libres === 1 ? "1 cupo libre" : "";
-    const titulo = pasado ? "" : lleno ? "Agenda llena" : sinCupo ? (grande ? "Un evento grande necesita el día libre" : "No entra tu pedido ese día") : libres === 1 ? "Queda 1 cupo libre" : "Disponible";
+    const nota = pasado ? "" : info.bloqueado ? "no disponible" : lleno ? "agenda llena" : sinCupo ? "sin cupo" : libres === 1 ? "1 cupo libre" : "";
+    const titulo = pasado ? "" : info.bloqueado ? "No disponible" : lleno ? "Agenda llena" : sinCupo ? (grande ? "Un evento grande necesita el día libre" : "No entra tu pedido ese día") : libres === 1 ? "Queda 1 cupo libre" : "Disponible";
     celdas += `<button type="button" class="dia ${f === estado.fecha ? "sel" : ""} ${lleno || sinCupo ? "lleno" : ""} ${libres === 1 && !lleno && !sinCupo ? "ultimo" : ""}" data-fecha="${f}" ${pasado || lleno || sinCupo ? "disabled" : ""} ${titulo ? `title="${titulo}" aria-label="${d}, ${titulo}"` : ""}>${d}${nota ? `<small>${nota}</small>` : ""}</button>`;
   }
   $("#cal").innerHTML = `
@@ -129,7 +129,7 @@ async function pintarCalendario() {
       <button type="button" data-mes="1" aria-label="Mes siguiente">›</button>
     </div>
     <div class="cal-grid">${celdas}</div>
-    <p class="cal-leyenda"><span class="punto"></span>1 cupo libre <span class="gris"></span>Agenda llena</p>
+    <p class="cal-leyenda"><span class="punto"></span>1 cupo libre <span class="gris"></span>Sin disponibilidad</p>
     <p class="small muted cal-nota">Reservas web con al menos ${estado.cfg.anticipacion_min_horas} h de anticipación. ¿Es para antes? <a class="enlace" href="${waConPedido("Quiero reservar con menos de " + estado.cfg.anticipacion_min_horas + " h de anticipación:")}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a></p>`;
 }
 $("#cal").addEventListener("click", async (e) => {

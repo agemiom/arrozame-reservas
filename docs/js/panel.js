@@ -10,7 +10,7 @@ const COLOR_EV = { pendiente: "#FBEBC7", confirmada: "#E3E6D8", pagada: "#DCEBD8
 const ORIGEN = { web: "Web", whatsapp: "WhatsApp", instagram: "Instagram", manual: "Manual", otro: "Otro" };
 
 const st = {
-  vista: "agenda", reservas: [], productos: [], cfg: null, personal: [],
+  vista: "agenda", reservas: [], productos: [], cfg: null, personal: [], bloqueos: [],
   agenda: { modo: "proximas", estado: "", q: "" },
   mesCal: hoyISO().slice(0, 7),
   periodo: 6, metrica: "raciones",
@@ -104,8 +104,8 @@ async function entrar(u) {
 }
 
 async function recargar() {
-  [st.reservas, st.productos, st.cfg, st.personal] = await Promise.all([
-    datos.reservas(), datos.productos({ todos: true }), datos.configCompleta(), datos.personal().catch(() => []),
+  [st.reservas, st.productos, st.cfg, st.personal, st.bloqueos] = await Promise.all([
+    datos.reservas(), datos.productos({ todos: true }), datos.configCompleta(), datos.personal().catch(() => []), datos.bloqueos().catch(() => []),
   ]);
 }
 
@@ -185,24 +185,37 @@ function vistaCalendario() {
   const porDia = {};
   st.reservas.forEach((r) => (porDia[r.fecha] ??= []).push(r));
   const bloq = new Set(st.cfg.dias_bloqueados || []);
+  const hoyISO_ = hoyISO();
+  const proximos = st.bloqueos.filter((b) => b.hasta >= hoyISO_).sort((a, b) => a.desde.localeCompare(b.desde));
   let celdas = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => `<div class="dow">${d}</div>`).join("");
   for (let i = 0; i < 42; i++) {
     const f = sumarDias(inicio, i);
     if (i >= 35 && f.slice(0, 7) !== st.mesCal) break;
     const evs = (porDia[f] || []).sort((a, b) => a.hora.localeCompare(b.hora));
     celdas += `<div class="cel ${f.slice(0, 7) !== st.mesCal ? "fuera" : ""} ${f === hoy ? "hoy" : ""} ${bloq.has(f) ? "bloq" : ""}">
-      <span class="n" data-bloq="${f}" title="Clic para ${bloq.has(f) ? "desbloquear" : "bloquear"} este día" style="cursor:pointer">${Number(f.slice(8))}</span>
+      <button type="button" class="n" data-bloq="${f}" title="${bloq.has(f) ? "Ver o quitar el bloqueo" : "Bloquear desde este día"}" aria-label="${Number(f.slice(8))}: ${bloq.has(f) ? "bloqueado" : "bloquear"}">${Number(f.slice(8))}</button>
+      ${bloq.has(f) ? `<span class="motivo">${MOTIVOS[bloqueoDe(f)?.motivo] || "Bloqueado"}</span>` : ""}
       ${evs.map((r) => `<button class="ev" data-id="${r.id}" style="background:${COLOR_EV[r.estado]}">${hhmm(r.hora)} ${escapar((r.clientes?.nombre || "").split(" ")[0])} · ${r.raciones_total}</button>`).join("")}
     </div>`;
   }
   const delMes = activas(st.reservas).filter((r) => r.fecha.startsWith(st.mesCal));
   $("#vista").innerHTML = `
     <div class="cab"><h1>${(([a, ...r]) => a.toUpperCase() + r.join(""))(primero.toLocaleDateString("es-BO", { month: "long", year: "numeric" }))}</h1>
-      <div style="display:flex;gap:8px"><button class="btn sec chico" data-m="-1">‹</button><button class="btn sec chico" data-m="0">Hoy</button><button class="btn sec chico" data-m="1">›</button><button class="btn chico" id="nueva">+ Nueva</button></div></div>
-    <p class="muted small" style="margin-top:-8px">${delMes.length} eventos · ${delMes.reduce((s, r) => s + r.raciones_total, 0)} raciones · ${bs(delMes.reduce((s, r) => s + Number(r.total), 0))} · Toca el número de un día para bloquearlo (sin reservas web).</p>
+      <div style="display:flex;gap:8px"><button class="btn sec chico" data-m="-1">‹</button><button class="btn sec chico" data-m="0">Hoy</button><button class="btn sec chico" data-m="1">›</button><button class="btn sec chico" id="bloquear">Bloquear fechas</button><button class="btn chico" id="nueva">+ Nueva</button></div></div>
+    <p class="muted small" style="margin-top:-8px">${delMes.length} eventos · ${delMes.reduce((s, r) => s + r.raciones_total, 0)} raciones · ${bs(delMes.reduce((s, r) => s + Number(r.total), 0))} · Toca el número de un día para bloquearlo o ver su bloqueo.</p>
     <div class="pcal">${celdas}</div>
-    <div class="filtros small" style="margin-top:12px">${ESTADOS.map((e) => `<span class="est est-${e}">${ETQ[e]}</span>`).join("")}</div>`;
+    <div class="filtros small" style="margin-top:12px">${ESTADOS.map((e) => `<span class="est est-${e}">${ETQ[e]}</span>`).join("")}<span class="leyenda-bloq">Bloqueado</span></div>
+    <div class="tarjeta bloqueos-tarjeta">
+      <h2>Fechas bloqueadas</h2>
+      <p class="bajada">Esos días no se pueden reservar desde la web. Desde el panel sí puedes cargar una reserva si haces una excepción.</p>
+      ${proximos.length ? `<div class="bloqueos-lista">${proximos.map((b) => `<div class="bloqueo">
+          <div><b>${rangoTexto(b)}</b><span class="small muted">${MOTIVOS[b.motivo] || b.motivo}${b.nota ? " · " + escapar(b.nota) : ""}</span></div>
+          <button type="button" class="btn sec chico" data-desbloquear="${b.id}">Desbloquear</button></div>`).join("")}</div>`
+        : `<p class="small muted" style="margin:0">No hay fechas bloqueadas próximas.</p>`}
+    </div>`;
   $("#nueva").onclick = nuevaReserva;
+  $("#bloquear").onclick = () => formBloqueo(hoyISO_ > `${st.mesCal}-01` ? hoyISO_ : `${st.mesCal}-01`);
+  $(".bloqueos-tarjeta").onclick = (e) => { const b = e.target.closest("[data-desbloquear]"); if (b) desbloquear(st.bloqueos.find((x) => x.id === b.dataset.desbloquear)); };
   $$("[data-m]").forEach((b) => b.onclick = () => {
     const d = Number(b.dataset.m);
     if (!d) st.mesCal = hoyISO().slice(0, 7);
@@ -212,11 +225,63 @@ function vistaCalendario() {
   $(".pcal").onclick = async (e) => {
     const ev = e.target.closest(".ev"); if (ev) return abrirReserva(ev.dataset.id);
     const n = e.target.closest("[data-bloq]"); if (!n) return;
-    const f = n.dataset.bloq; const set = new Set(st.cfg.dias_bloqueados || []);
-    set.has(f) ? set.delete(f) : set.add(f);
-    st.cfg = await datos.guardarConfig({ dias_bloqueados: [...set].sort() });
-    toast(set.has(f) ? `${f} bloqueado para reservas web` : `${f} disponible de nuevo`); pintar();
+    const f = n.dataset.bloq; const b = bloqueoDe(f);
+    b ? verBloqueo(b) : formBloqueo(f);
   };
+}
+
+// ---------------------------------------------------------------- bloqueos de fechas
+const MOTIVOS = { vacaciones: "Vacaciones", equipo: "Falta de equipo", privado: "Evento privado", otro: "Otro" };
+const bloqueoDe = (f) => st.bloqueos.find((b) => b.desde <= f && f <= b.hasta);
+const fechaCorta = (f) => new Date(f + "T12:00").toLocaleDateString("es-BO", { day: "numeric", month: "long" });
+const rangoTexto = (b) => b.desde === b.hasta ? fechaCorta(b.desde) : `Del ${fechaCorta(b.desde)} al ${fechaCorta(b.hasta)}`;
+async function refrescarBloqueos() { [st.bloqueos, st.cfg] = await Promise.all([datos.bloqueos(), datos.configCompleta()]); }
+function formBloqueo(desde) {
+  const c = cajon(`
+    <h2>Bloquear fechas</h2>
+    <p class="muted small" style="margin-top:0">Esos días no se podrán reservar desde la web.</p>
+    <form id="fb">
+      <div class="bloque">
+        <div class="fila"><label class="campo"><span>Desde</span><input type="date" name="desde" value="${desde}" required></label>
+          <label class="campo"><span>Hasta</span><input type="date" name="hasta" value="${desde}" required></label></div>
+        <label class="campo"><span>Motivo</span><select name="motivo">${Object.entries(MOTIVOS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+        <label class="campo" style="margin:0"><span>Nota (opcional, solo la ves tú)</span><input type="text" name="nota" placeholder="Ej. viaje a España, Kike de vacaciones"></label>
+      </div>
+      <div class="aviso info oculto" id="aviso-bloq"></div>
+      <button class="btn" style="width:100%">Bloquear</button>
+    </form>`);
+  const f = $("#fb", c);
+  const revisar = () => {
+    if (f.hasta.value < f.desde.value) f.hasta.value = f.desde.value;
+    const rs = activas(st.reservas).filter((r) => r.fecha >= f.desde.value && r.fecha <= f.hasta.value);
+    const a = $("#aviso-bloq", c);
+    a.classList.toggle("oculto", !rs.length);
+    a.innerHTML = rs.length ? `Ojo: hay <b>${rs.length} ${rs.length === 1 ? "reserva" : "reservas"}</b> en esas fechas (${rs.map((r) => escapar((r.clientes?.nombre || "").split(" ")[0]) + " " + r.fecha.slice(8) + "/" + r.fecha.slice(5, 7)).join(", ")}). Bloquear no las cancela.` : "";
+  };
+  f.oninput = revisar; revisar();
+  f.onsubmit = async (e) => {
+    e.preventDefault(); const b = $("button.btn", f); b.disabled = true; b.textContent = "Bloqueando…";
+    try {
+      await datos.crearBloqueo({ desde: f.desde.value, hasta: f.hasta.value, motivo: f.motivo.value, nota: f.nota.value.trim() || null });
+      await refrescarBloqueos(); cerrarCajon(); toast("Fechas bloqueadas"); pintar();
+    } catch (err) { toast("No se pudo bloquear: " + err.message); b.disabled = false; b.textContent = "Bloquear"; }
+  };
+}
+function verBloqueo(b) {
+  const c = cajon(`
+    <h2>Fecha bloqueada</h2>
+    <div class="bloque">
+      <div class="linea"><span>Fechas</span><b>${rangoTexto(b)}</b></div>
+      <div class="linea"><span>Motivo</span><span>${MOTIVOS[b.motivo] || b.motivo}</span></div>
+      ${b.nota ? `<div class="linea"><span>Nota</span><span>${escapar(b.nota)}</span></div>` : ""}
+    </div>
+    <button type="button" class="btn" style="width:100%" id="desbloquear-uno">Desbloquear</button>`);
+  $("#desbloquear-uno", c).onclick = () => desbloquear(b);
+}
+async function desbloquear(b) {
+  if (!b || !confirm(`¿Desbloquear ${rangoTexto(b).toLowerCase()}? Esos días vuelven a estar disponibles en la web.`)) return;
+  try { await datos.borrarBloqueo(b.id); await refrescarBloqueos(); cerrarCajon(); toast("Fechas desbloqueadas"); pintar(); }
+  catch (err) { toast("No se pudo desbloquear: " + err.message); }
 }
 
 // ================================================================ ESTADÍSTICAS
@@ -573,8 +638,18 @@ function abrirReserva(id) {
     </div>
 
     <div class="bloque"><h4>Cliente</h4>
-      <div style="font-weight:700;font-size:16px">${escapar(cli.nombre)}</div>
-      <div class="small"><a href="https://wa.me/${telWa(cli.telefono)}" target="_blank">${escapar(cli.telefono)}</a>${cli.email ? " · " + escapar(cli.email) : ""}</div>
+      <div class="cli-datos">
+        <div><div style="font-weight:700;font-size:16px">${escapar(cli.nombre)}</div>
+          <div class="small"><a href="https://wa.me/${telWa(cli.telefono)}" target="_blank">${escapar(cli.telefono)}</a>${cli.email ? " · " + escapar(cli.email) : ""}</div></div>
+        <button type="button" class="mini" id="editar-cli">Editar datos</button>
+      </div>
+      <form id="fcli" class="form-cli oculto">
+        <div class="fila"><label class="campo"><span>Nombre</span><input type="text" name="nombre" value="${escapar(cli.nombre || "")}" required></label>
+          <label class="campo"><span>WhatsApp</span><input type="tel" name="telefono" value="${escapar(cli.telefono || "")}" inputmode="tel" required></label></div>
+        <label class="campo"><span>Email (opcional)</span><input type="email" name="email" value="${escapar(cli.email || "")}"></label>
+        <p class="small muted" style="margin:-6px 0 10px">El cambio vale para todas las reservas de este cliente.</p>
+        <div class="acciones-cli"><button class="btn chico">Guardar</button><button type="button" class="btn sec chico" id="cancelar-cli">Cancelar</button></div>
+      </form>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${Object.entries(plantillas).map(([k, t]) => `<a class="btn wa chico" target="_blank" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(t)}">WhatsApp · ${k}</a>`).join("")}</div>
     </div>
 
@@ -647,6 +722,24 @@ function abrirReserva(id) {
     return total;
   };
   f.oninput = recalcular;
+  // editar nombre / WhatsApp / email del cliente
+  const fcli = $("#fcli", c);
+  $("#editar-cli", c).onclick = () => { fcli.classList.remove("oculto"); $("#editar-cli", c).classList.add("oculto"); fcli.telefono.focus(); };
+  $("#cancelar-cli", c).onclick = () => { fcli.classList.add("oculto"); $("#editar-cli", c).classList.remove("oculto"); };
+  fcli.onsubmit = async (e) => {
+    e.preventDefault();
+    const tel = fcli.telefono.value.replace(/[^0-9+]/g, "");
+    if (tel.replace(/\D/g, "").length < 7) return toast("El WhatsApp debe tener al menos 7 dígitos");
+    const patch = { nombre: fcli.nombre.value.trim(), telefono: tel, email: fcli.email.value.trim() || null };
+    if (!patch.nombre) return toast("El nombre no puede quedar vacío");
+    try {
+      await datos.actualizarCliente(cli.id, patch);
+      st.reservas.forEach((x) => { if (x.clientes?.id === cli.id) x.clientes = { ...x.clientes, ...patch }; });
+      toast("Datos del cliente actualizados"); pintar(); abrirReserva(r.id);
+    } catch (err) {
+      toast(/duplicate|unique|telefono/i.test(err.message) ? "Ese número ya está registrado para otro cliente" : "No se pudo guardar: " + err.message);
+    }
+  };
   $("#enviar-qr", c)?.addEventListener("click", async () => {
     // se abre WhatsApp (enlace normal) y en paralelo queda registrado el envío
     try { await guardarReserva(r, { qr_enviado_at: new Date().toISOString() }); $("#qr-enviado", c).textContent = fechaHora(new Date().toISOString()); } catch {}

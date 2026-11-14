@@ -111,6 +111,10 @@ const remoto = {
     return ok(id ? await c.from("personal").update(resto).eq("id", id).select().single()
                  : await c.from("personal").insert(resto).select().single());
   },
+  // ---- bloqueos de fechas (la base recalcula dias_bloqueados sola) ----
+  async bloqueos() { return ok(await (await cliente()).from("bloqueos").select("*").order("desde")); },
+  async crearBloqueo(b) { return ok(await (await cliente()).from("bloqueos").insert(b).select().single()); },
+  async borrarBloqueo(id) { return ok(await (await cliente()).from("bloqueos").delete().eq("id", id)); },
   // ---- gastos ----
   async agregarGasto(g) { return ok(await (await cliente()).from("gastos").insert(g).select().single()); },
   async borrarGasto(g) {
@@ -254,6 +258,13 @@ const conCliente = (r) => {
   return { equipo: [], compra_estado: "pendiente", ...r, gastos: [...(r.gastos || [])], clientes: c, reserva_items: r.items };
 };
 
+// en demo, igual que el trigger de la base: los rangos se pasan a la lista de días bloqueados
+function sincronizarBloqueosDemo(d) {
+  const dias = new Set();
+  for (const b of d.bloqueos || []) for (let f = b.desde; f <= b.hasta; f = sumarDias(f, 1)) dias.add(f);
+  d.config.dias_bloqueados = [...dias].sort();
+}
+
 const demo = {
   async config() { await pausa(); const { calendario_token, ...pub } = { ...CONFIG_INICIAL, ...db().config }; return pub; },
   async productos({ todos = false } = {}) { await pausa(); return db().productos.filter((p) => todos || p.activo).sort((a, b) => a.orden - b.orden); },
@@ -331,6 +342,17 @@ const demo = {
   async configCompleta() { return { ...CONFIG_INICIAL, ...db().config }; },
   async guardarConfig(patch) { const d = db(); Object.assign(d.config, patch); guardar(d); return d.config; },
   async urlCalendario() { return "https://TU-PROYECTO.supabase.co/functions/v1/calendario?token=…"; },
+  async bloqueos() {
+    const d = db();
+    if (!d.bloqueos) { d.bloqueos = (d.config.dias_bloqueados || []).map((f) => ({ id: uid(), desde: f, hasta: f, motivo: "otro", nota: null })); guardar(d); }
+    return [...d.bloqueos].sort((a, b) => a.desde.localeCompare(b.desde));
+  },
+  async crearBloqueo(b) {
+    await this.bloqueos(); const d = db();
+    const n = { id: uid(), nota: null, ...b, created_at: new Date().toISOString() };
+    d.bloqueos.push(n); sincronizarBloqueosDemo(d); guardar(d); return n;
+  },
+  async borrarBloqueo(id) { await this.bloqueos(); const d = db(); d.bloqueos = d.bloqueos.filter((x) => x.id !== id); sincronizarBloqueosDemo(d); guardar(d); },
   async personal() { return [...(db().personal ||= [])]; },
   async guardarPersona(p) {
     const d = db(); d.personal ||= [];
@@ -362,7 +384,11 @@ const demo = {
     cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
     return cv.toDataURL("image/png");
   },
-  async actualizarCliente(id, patch) { const d = db(); Object.assign(d.clientes.find((c) => c.id === id), patch); guardar(d); },
+  async actualizarCliente(id, patch) {
+    const d = db();
+    if (patch.telefono && d.clientes.some((c) => c.id !== id && c.telefono === patch.telefono)) throw new Error("duplicate key value violates unique constraint clientes_telefono_key");
+    const c = d.clientes.find((x) => x.id === id); Object.assign(c, patch); guardar(d); return c;
+  },
   reiniciarDemo() { try { localStorage.removeItem(CLAVE); } catch {} memoria = null; },
 };
 
