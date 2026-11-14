@@ -104,6 +104,14 @@ const remoto = {
   async actualizarCliente(id, patch) {
     return ok(await (await cliente()).from("clientes").update(patch).eq("id", id).select().single());
   },
+  // Sube la imagen del QR de cobro al bucket público "pagos" y devuelve su URL pública
+  async subirQR(archivo) {
+    const c = await cliente();
+    const ext = (archivo.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    const ruta = `qr-anticipo-${Date.now()}.${ext}`;
+    ok(await c.storage.from("pagos").upload(ruta, archivo, { contentType: archivo.type, upsert: false, cacheControl: "3600" }));
+    return c.storage.from("pagos").getPublicUrl(ruta).data.publicUrl;
+  },
 };
 
 // =====================================================================
@@ -129,6 +137,8 @@ const CONFIG_INICIAL = {
   eventos_max_por_dia: 2, raciones_max_por_dia: 120, anticipacion_min_horas: 48, duracion_evento_min: 180,
   horarios: ["11:00", "12:00", "13:00", "18:00", "19:00", "20:00", "21:00"], dias_bloqueados: [],
   calendario_token: "demo",
+  qr_url: null, anticipo_porcentaje: 50,
+  mensaje_anticipo: "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, mandanos el comprobante por acá. ¡Gracias!",
 };
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 const codigo = () => Math.random().toString(16).slice(2, 8).toUpperCase();
@@ -208,7 +218,7 @@ const conCliente = (r) => {
 };
 
 const demo = {
-  async config() { await pausa(); const { calendario_token, ...pub } = db().config; return pub; },
+  async config() { await pausa(); const { calendario_token, ...pub } = { ...CONFIG_INICIAL, ...db().config }; return pub; },
   async productos({ todos = false } = {}) { await pausa(); return db().productos.filter((p) => todos || p.activo).sort((a, b) => a.orden - b.orden); },
   async disponibilidad(desde, hasta) {
     const d = db(); const c = d.config; const out = [];
@@ -277,9 +287,17 @@ const demo = {
     else d.productos.push({ ...p, id: uid() });
     guardar(d); return p;
   },
-  async configCompleta() { return { ...db().config }; },
+  async configCompleta() { return { ...CONFIG_INICIAL, ...db().config }; },
   async guardarConfig(patch) { const d = db(); Object.assign(d.config, patch); guardar(d); return d.config; },
   async urlCalendario() { return "https://TU-PROYECTO.supabase.co/functions/v1/calendario?token=…"; },
+  // En demo el QR se guarda en este navegador, reducido a 600 px
+  async subirQR(archivo) {
+    const img = await createImageBitmap(archivo);
+    const k = Math.min(1, 600 / Math.max(img.width, img.height));
+    const cv = Object.assign(document.createElement("canvas"), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL("image/png");
+  },
   async actualizarCliente(id, patch) { const d = db(); Object.assign(d.clientes.find((c) => c.id === id), patch); guardar(d); },
   reiniciarDemo() { try { localStorage.removeItem(CLAVE); } catch {} memoria = null; },
 };

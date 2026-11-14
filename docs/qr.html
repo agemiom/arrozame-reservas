@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Anticipo de tu reserva · Arrózame</title>
+  <meta name="description" content="QR para pagar el anticipo de tu reserva en Arrózame · Paella Experience.">
+  <meta name="theme-color" content="#EFB84D">
+  <link rel="icon" href="img/icono.png">
+  <link rel="apple-touch-icon" href="img/icono.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&family=Open+Sans:wght@400;600;700&family=Libre+Baskerville:ital@0;1&display=swap">
+  <link rel="stylesheet" href="css/arrozame.css">
+  <style>
+    body { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; padding: 28px 16px 40px; }
+    .logo { width: 170px; height: auto; margin: 4px 0 22px; }
+    .pago { width: 100%; max-width: 420px; text-align: center; animation: subir 500ms var(--ease-out) both; }
+    @keyframes subir { from { opacity: 0; transform: translateY(10px); } }
+    .pago h1 { font-size: clamp(24px, 6vw, 30px); letter-spacing: -.025em; margin-bottom: 6px; }
+    .pago .bajada { margin: 0 0 18px; color: var(--gris); }
+    .datos { display: flex; justify-content: space-between; gap: 12px; text-align: left; margin-bottom: 18px; }
+    .datos span { display: block; font-size: 12px; font-weight: 700; color: var(--gris); }
+    .datos b { font-family: var(--f-titulo); font-size: 22px; font-variant-numeric: tabular-nums; }
+    .datos .monto b { color: var(--terracota); font-size: 28px; }
+    .datos .monto { text-align: right; }
+    .qr { width: min(280px, 100%); aspect-ratio: 1; object-fit: contain; display: block; margin: 0 auto; border-radius: 18px; background: #fff; }
+    .pasos-pago { text-align: left; margin: 18px 0 0; padding-left: 20px; color: #3d3831; font-size: 14px; }
+    .pasos-pago li { margin-bottom: 6px; }
+    .acciones { display: grid; gap: 10px; margin-top: 20px; }
+    .acciones .btn { width: 100%; }
+    .sin-qr { margin: 8px 0 0; }
+    footer { margin-top: 28px; font-size: 12.5px; color: var(--gris); text-align: center; }
+  </style>
+</head>
+<body>
+  <img class="logo" src="img/logo_h_dark.png" alt="arrózame · Paella Experience" width="170">
+  <main class="tarjeta pago">
+    <h1>Anticipo de tu reserva</h1>
+    <p class="bajada">Escaneá el QR desde la app de tu banco para asegurar la fecha.</p>
+    <div class="datos franja">
+      <div><span>Reserva</span><b id="codigo">—</b></div>
+      <div class="monto"><span>Monto a pagar</span><b id="monto">—</b></div>
+    </div>
+    <div id="qr-zona"><p class="muted">Cargando QR…</p></div>
+    <ol class="pasos-pago">
+      <li>Abrí la app de tu banco y elegí <b>pagar con QR</b>.</li>
+      <li>Escaneá este código o subí la imagen guardada.</li>
+      <li>Pagá el monto exacto y mandanos el comprobante por WhatsApp.</li>
+    </ol>
+    <div class="acciones">
+      <button class="btn sec oculto" id="guardar" type="button">Guardar imagen del QR</button>
+      <a class="btn wa" id="comprobante" href="#" target="_blank" rel="noopener">Enviar comprobante por WhatsApp</a>
+    </div>
+  </main>
+  <footer>Arrózame · Paella Experience · Santa Cruz de la Sierra</footer>
+
+  <script type="module">
+    import { datos, bs, escapar } from "./js/datos.js";
+    const p = new URLSearchParams(location.search);
+    const codigo = (p.get("c") || "").replace(/[^A-Za-z0-9-]/g, "").slice(0, 20).toUpperCase();
+    const monto = Math.max(0, Number(p.get("m")) || 0);
+    document.getElementById("codigo").textContent = codigo || "—";
+    document.getElementById("monto").textContent = monto ? bs(monto) : "—";
+
+    const cfg = await datos.config().catch(() => ({}));
+    const wa = String(cfg.whatsapp || "59171293297").replace(/\D/g, "");
+    const texto = `¡Hola Arrózame! Ya pagué el anticipo${monto ? " de " + bs(monto) : ""}${codigo ? " de la reserva " + codigo : ""}. Te envío el comprobante.`;
+    document.getElementById("comprobante").href = `https://wa.me/${wa}?text=${encodeURIComponent(texto)}`;
+
+    const zona = document.getElementById("qr-zona");
+    if (cfg.qr_url) {
+      zona.innerHTML = `<img class="qr" src="${escapar(cfg.qr_url)}" alt="Código QR para pagar el anticipo">`;
+      const g = document.getElementById("guardar");
+      g.classList.remove("oculto");
+      g.onclick = async () => {
+        // descarga la imagen; si el navegador no lo permite, la abre para guardarla a mano
+        try {
+          const blob = await (await fetch(cfg.qr_url)).blob();
+          const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `QR-anticipo-${codigo || "arrozame"}.png` });
+          document.body.appendChild(a); a.click(); a.remove();
+        } catch { window.open(cfg.qr_url, "_blank", "noopener"); }
+      };
+    } else {
+      zona.innerHTML = `<div class="aviso info sin-qr">Todavía no tenemos el QR cargado. Escribinos por WhatsApp y te lo pasamos.</div>`;
+    }
+  </script>
+</body>
+</html>

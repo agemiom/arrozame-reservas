@@ -24,29 +24,34 @@ function calculo() {
 
 // ---------------------------------------------------------------- carta
 function pintarCarta() {
+  // [categoría, título, bajada, foto del capítulo (solo diseño)]
   const grupos = [
-    ["tradicional", "Arrocería tradicional española", "La tradición y técnica española"],
-    ["autor", "Arrocería boliviana de autor", "Con sabores bolivianos"],
-    ["extra", "Extras", ""],
+    ["tradicional", "Arrocería tradicional española", "La tradición y técnica española", ["paella-marisco-700.webp", "Paella de marisco con mejillones y gambas"]],
+    ["autor", "Arrocería boliviana de autor", "Con sabores bolivianos", ["paella-costilla-900.webp", "Paella de costilla de res con romero en la paellera"]],
+    ["extra", "Extras", "", null],
   ];
-  $("#carta").innerHTML = grupos.map(([cat, titulo, sub]) => {
+  $("#carta").innerHTML = grupos.map(([cat, titulo, sub, foto]) => {
     const ps = estado.productos.filter((p) => p.categoria === cat);
     if (!ps.length) return "";
-    return `<div class="grupo-titulo"><h3>${titulo}</h3><span>${sub}</span></div>` + ps.map((p) => `
+    const cab = foto
+      ? `<div class="capitulo"><img src="img/${foto[0]}" alt="${foto[1]}" loading="lazy"><div class="cap-txt"><h2>${titulo}</h2>${sub ? `<span>${sub}</span>` : ""}</div></div>`
+      : `<div class="grupo-titulo"><h2>${titulo}</h2>${sub ? `<span>${sub}</span>` : ""}</div>`;
+    return cab + ps.map((p) => `
       <div class="plato ${estado.cantidades[p.id] ? "elegido" : ""}" data-id="${p.id}">
-        <div>
-          <h4>${escapar(p.nombre)}</h4>
+        <div class="plato-txt">
+          <h3>${escapar(p.nombre)}</h3>
           <div class="ing">${escapar(p.ingredientes || "")}</div>
           ${p.descripcion ? `<div class="desc">${escapar(p.descripcion)}</div>` : ""}
         </div>
         <div class="der">
-          <div class="precio">${bs(p.precio_bs)} <span class="small muted" style="font-weight:400">/ración</span></div>
+          <div class="precio">${bs(p.precio_bs)} <span>por ración</span></div>
+          <button type="button" class="agregar" data-mas aria-label="Agregar ${escapar(p.nombre)}">Agregar</button>
           <div class="contador">
             <button type="button" data-menos aria-label="Quitar ración">−</button>
             <input type="number" min="0" inputmode="numeric" value="${estado.cantidades[p.id] || 0}" aria-label="Raciones de ${escapar(p.nombre)}">
             <button type="button" data-mas aria-label="Sumar ración">+</button>
           </div>
-          <div class="rapidos">${[6, 10, 20].map((n) => `<button type="button" data-fijar="${n}">${n}</button>`).join("")}</div>
+          <div class="rapidos" aria-label="Cantidades rápidas">${[...new Set([minimoPorPaella(), 10, 20].filter((n) => n >= minimoPorPaella()))].map((n) => `<button type="button" data-fijar="${n}" aria-label="${n} raciones">${n}</button>`).join("")}</div>
         </div>
       </div>`).join("");
   }).join("");
@@ -55,8 +60,10 @@ function pintarCarta() {
 $("#carta").addEventListener("click", (e) => {
   const fila = e.target.closest(".plato"); if (!fila) return;
   const id = fila.dataset.id; let n = estado.cantidades[id] || 0;
-  if (e.target.matches("[data-mas]")) n = n === 0 ? Math.max(1, Math.min(estado.cfg.pedido_minimo, 6)) : n + 1;
-  else if (e.target.matches("[data-menos]")) n = Math.max(0, n - 1);
+  // Cada paella va de 0 (no elegida) al mínimo de raciones o más; nunca entre medio.
+  const min = minimoPorPaella();
+  if (e.target.matches("[data-mas]")) n = n === 0 ? min : n + 1;
+  else if (e.target.matches("[data-menos]")) n = n <= min ? 0 : n - 1;
   else if (e.target.dataset.fijar) n = Number(e.target.dataset.fijar);
   else return;
   fijarCantidad(fila, id, n);
@@ -65,10 +72,19 @@ $("#carta").addEventListener("input", (e) => {
   const fila = e.target.closest(".plato"); if (!fila || e.target.tagName !== "INPUT") return;
   fijarCantidad(fila, fila.dataset.id, Math.max(0, parseInt(e.target.value) || 0), false);
 });
+// al terminar de escribir, una cantidad por debajo del mínimo sube al mínimo
+$("#carta").addEventListener("change", (e) => {
+  const fila = e.target.closest(".plato"); if (!fila || e.target.tagName !== "INPUT") return;
+  const n = Math.max(0, parseInt(e.target.value) || 0);
+  fijarCantidad(fila, fila.dataset.id, n > 0 && n < minimoPorPaella() ? minimoPorPaella() : n);
+});
+const minimoPorPaella = () => Math.max(1, Number(estado.cfg?.pedido_minimo) || 1);
 function fijarCantidad(fila, id, n, reescribir = true) {
   estado.cantidades[id] = Math.min(n, 500);
   if (reescribir) $("input", fila).value = estado.cantidades[id];
   fila.classList.toggle("elegido", estado.cantidades[id] > 0);
+  const menos = $("[data-menos]", fila);
+  if (menos) menos.setAttribute("aria-label", estado.cantidades[id] <= minimoPorPaella() ? "Quitar esta paella" : "Quitar ración");
   actualizar();
 }
 
@@ -105,7 +121,7 @@ async function pintarCalendario() {
   $("#cal").innerHTML = `
     <div class="cal-cab">
       <button type="button" data-mes="-1" ${puedeAtras ? "" : "disabled style='opacity:.3'"} aria-label="Mes anterior">‹</button>
-      <h3>${nombreMes}</h3>
+      <h2>${nombreMes}</h2>
       <button type="button" data-mes="1" aria-label="Mes siguiente">›</button>
     </div>
     <div class="cal-grid">${celdas}</div>
@@ -152,15 +168,15 @@ function actualizar() {
   const c = calculo();
   const falta = Math.max(0, c.minimo - c.raciones);
   $("#resumen").innerHTML = `
-    <h3>Tu pedido</h3>
+    <h2>Tu pedido</h2>
     ${c.lineas.length ? c.lineas.map((l) => `<div class="res-linea"><span>${l.n} × ${escapar(l.p.nombre)}</span><span>${bs(l.sub)}</span></div>`).join("")
       : `<p class="small muted">Todavía no elegiste paellas.</p>`}
     <div class="barra-min"><div style="width:${Math.min(100, (c.raciones / c.minimo) * 100)}%"></div></div>
     <div class="small ${falta ? "muted" : ""}" style="${falta ? "" : "color:var(--ok);font-weight:600"}">
-      ${falta ? `Faltan ${falta} raciones para el mínimo` : `${c.raciones} raciones ✓`}</div>
-    ${c.raciones ? `<div class="res-linea" style="margin-top:6px"><span>Showcooking</span><span>${c.showIncluido ? "Incluido" : c.quiereShow ? bs(c.costoShow) : "—"}</span></div>` : ""}
+      ${falta ? `Faltan ${falta} raciones para el mínimo` : `<span class="etiqueta oliva">${c.raciones} raciones</span>`}</div>
+    ${c.raciones ? `<div class="res-linea" style="margin-top:6px"><span>Showcooking</span><span>${c.showIncluido ? `<span class="etiqueta oliva">Incluido</span>` : c.quiereShow ? bs(c.costoShow) : "—"}</span></div>` : ""}
     ${!c.showIncluido && c.raciones ? `<div class="small muted">Showcooking incluido desde ${estado.cfg.showcooking_incluido_desde} raciones</div>` : ""}
-    ${estado.fecha ? `<div class="res-linea" style="margin-top:10px"><span>📅 ${fechaLarga(estado.fecha)}</span><span>${estado.hora || ""}</span></div>` : ""}
+    ${estado.fecha ? `<div class="res-linea" style="margin-top:10px"><span>${fechaLarga(estado.fecha)}</span><span>${estado.hora || ""}</span></div>` : ""}
     <div class="res-total"><span>Total</span><span>${bs(c.total)}</span></div>
     <p class="small muted" style="margin:8px 0 0">Precio por ración personal. Te confirmamos por WhatsApp.</p>`;
 
@@ -199,6 +215,40 @@ $("#btn-seguir").onclick = seguir; $("#bm-seguir").onclick = seguir;
 $("#btn-atras").onclick = atras; $("#bm-atras").onclick = atras;
 $("#pasos").onclick = (e) => { const b = e.target.closest("button"); if (b && !b.disabled) { const n = Number(b.dataset.paso); n < estado.paso ? irA(n) : n === estado.paso + 1 && seguir(); } };
 $("#form-datos").addEventListener("input", actualizar);
+
+// ---------------------------------------------------------------- ubicación (Google Maps, sin API key)
+const consultaMapa = () => {
+  const f = $("#form-datos");
+  return [f.direccion.value.trim(), f.zona.value.trim(), "Santa Cruz de la Sierra, Bolivia"].filter(Boolean).join(", ");
+};
+function pintarMapa() {
+  const f = $("#form-datos"); const q = consultaMapa();
+  $("#link-maps").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  if (f.direccion.value.trim().length < 4) return $("#mapa").classList.add("oculto");
+  const src = "https://maps.google.com/maps?q=" + encodeURIComponent(q) + "&z=16&output=embed";
+  if ($("#mapa-iframe").getAttribute("src") !== src) $("#mapa-iframe").src = src;
+  $("#mapa").classList.remove("oculto");
+}
+let tMapa;
+for (const n of ["direccion", "zona"]) $(`#form-datos [name=${n}]`).addEventListener("input", () => { clearTimeout(tMapa); tMapa = setTimeout(pintarMapa, 700); });
+$("#btn-mi-ubicacion").onclick = () => {
+  const msg = $("#ubicacion-msg"); const b = $("#btn-mi-ubicacion");
+  const avisar = (t) => { msg.textContent = t; msg.classList.remove("oculto"); };
+  if (!navigator.geolocation) return avisar("Tu navegador no permite compartir la ubicación. Escribí la dirección o buscala en Google Maps.");
+  b.disabled = true; b.textContent = "Buscando…";
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const { latitude: la, longitude: lo } = pos.coords;
+    const f = $("#form-datos");
+    f.direccion.value = `${la.toFixed(6)}, ${lo.toFixed(6)}`;
+    f.direccion.dispatchEvent(new Event("input", { bubbles: true }));
+    pintarMapa();
+    avisar("Listo: usamos tu ubicación actual. Revisá el mapa y sumá referencias (condominio, casa) en la zona o en las notas.");
+    b.disabled = false; b.textContent = "Usar mi ubicación";
+  }, () => {
+    avisar("No pudimos obtener tu ubicación. Escribí la dirección o buscala en Google Maps.");
+    b.disabled = false; b.textContent = "Usar mi ubicación";
+  }, { enableHighAccuracy: true, timeout: 12000 });
+};
 $("#form-datos").addEventListener("submit", (e) => { e.preventDefault(); seguir(); });
 
 // ---------------------------------------------------------------- envío
@@ -250,21 +300,26 @@ function mostrarExito(r, c, f) {
   $("#barra-movil").classList.add("oculto");
   $("#exito").classList.remove("oculto");
   $("#exito").innerHTML = `
-    <div class="check">✓</div>
+    <div class="exito-foto"><img src="img/chef-paellera-900.webp" alt="Chef de Arrózame sonriendo junto a la paellera"></div>
+    <svg class="check" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30"/><path d="M19 33.5l8.5 8.5L45 24"/></svg>
     <h2>¡Reserva recibida!</h2>
-    <p class="muted">Tu código de reserva es</p>
-    <div class="codigo">${escapar(r.codigo)}</div>
-    <p style="margin-top:14px"><b>${fechaLarga(r.fecha)} · ${r.hora}</b><br>${r.raciones} raciones · ${bs(r.total)}</p>
-    <p class="small muted" style="max-width:420px;margin:10px auto 0">Queda <b>pendiente</b> hasta que te confirmemos por WhatsApp con los datos de pago del anticipo.</p>
+    <div class="ticket">
+      <span class="ticket-lbl">Tu código de reserva</span>
+      <div class="codigo">${escapar(r.codigo)}</div>
+      <div class="ticket-sep"></div>
+      <div class="ticket-fila"><span>${fechaLarga(r.fecha)}</span><b>${r.hora}</b></div>
+      <div class="ticket-fila"><span>${r.raciones} raciones</span><b>${bs(r.total)}</b></div>
+    </div>
+    <p class="exito-nota">Queda <b>pendiente</b> hasta que te confirmemos por WhatsApp con los datos de pago del anticipo.</p>
     <div class="botones">
       <a class="btn wa" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a>
     </div>
-    <p class="small muted" style="margin:18px 0 8px">Agregalo a tu calendario</p>
-    <div class="botones" style="margin-top:0">
-      <a class="btn sec chico" href="${icsHref}" ${esIOS ? "" : `download="arrozame-${r.codigo}.ics"`}>📅 Apple / iPhone</a>
-      <a class="btn sec chico" href="${gcal}" target="_blank" rel="noopener">📅 Google Calendar</a>
+    <p class="exito-cal">Agregalo a tu calendario</p>
+    <div class="botones cal-botones">
+      <a class="btn sec chico" href="${icsHref}" ${esIOS ? "" : `download="arrozame-${r.codigo}.ics"`}>Apple / iPhone</a>
+      <a class="btn sec chico" href="${gcal}" target="_blank" rel="noopener">Google Calendar</a>
     </div>
-    <p style="margin-top:22px"><a href="./" class="small">← Volver al inicio / hacer otra reserva</a></p>`;
+    <p class="exito-volver"><a href="./">← Volver al inicio / hacer otra reserva</a></p>`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -277,7 +332,7 @@ function mostrarExito(r, c, f) {
     $("#carta").innerHTML = `<div class="aviso error">No pudimos cargar la carta. Escribinos por WhatsApp al 71293297.</div>`;
     return;
   }
-  $("#aviso-minimo").textContent = `Pedido mínimo de ${estado.cfg.pedido_minimo} raciones · podés combinar varias paellas · showcooking incluido desde ${estado.cfg.showcooking_incluido_desde} raciones.`;
+  $("#aviso-minimo").textContent = `Mínimo ${estado.cfg.pedido_minimo} raciones por paella · podés combinar varias · showcooking incluido desde ${estado.cfg.showcooking_incluido_desde} raciones.`;
   $("#pie-contacto").innerHTML = `Santa Cruz de la Sierra · <a href="https://wa.me/${estado.cfg.whatsapp}">WhatsApp</a> · <a href="https://instagram.com/${estado.cfg.instagram}">@${estado.cfg.instagram}</a> · ${escapar(estado.cfg.email)}`;
   pintarCarta();
   actualizar();

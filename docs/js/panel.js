@@ -5,7 +5,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 const ESTADOS = ["pendiente", "confirmada", "pagada", "realizada", "cancelada"];
-const ETQ = { pendiente: "⏳ Pendiente", confirmada: "✅ Confirmada", pagada: "💰 Pagada", realizada: "✔︎ Realizada", cancelada: "✕ Cancelada" };
+const ETQ = { pendiente: "Pendiente", confirmada: "Confirmada", pagada: "Pagada", realizada: "Realizada", cancelada: "Cancelada" };
 const COLOR_EV = { pendiente: "#FBEBC7", confirmada: "#E3E6D8", pagada: "#DCEBD8", realizada: "#ECEAE6", cancelada: "#F6DDD7" };
 const ORIGEN = { web: "Web", whatsapp: "WhatsApp", instagram: "Instagram", manual: "Manual", otro: "Otro" };
 
@@ -21,6 +21,25 @@ const hhmm = (h) => String(h || "").slice(0, 5);
 const telWa = (t) => String(t || "").replace(/\D/g, "").replace(/^(?!591)(\d{8})$/, "591$1");
 const saldo = (r) => Math.max(0, Number(r.total) - Number(r.anticipo || 0));
 const activas = (rs) => rs.filter((r) => r.estado !== "cancelada");
+// ---- cobro del anticipo con QR
+const pctAnticipo = () => Number(st.cfg?.anticipo_porcentaje) || 50;
+const montoAnticipo = (r) => Math.round((Number(r.total) * pctAnticipo()) / 100);
+const fechaHora = (iso) => new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const urlPaginaQR = (r) => {
+  const u = new URL("qr.html", location.href);
+  u.searchParams.set("c", r.codigo); u.searchParams.set("m", montoAnticipo(r));
+  return u.href;
+};
+const MENSAJE_ANTICIPO_BASE = "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, mandanos el comprobante por acá. ¡Gracias!";
+const mensajeAnticipo = (r, nombre1) => (st.cfg?.mensaje_anticipo || MENSAJE_ANTICIPO_BASE)
+  .replaceAll("{nombre}", nombre1).replaceAll("{codigo}", r.codigo).replaceAll("{fecha}", fechaLarga(r.fecha))
+  .replaceAll("{porcentaje}", pctAnticipo()).replaceAll("{monto}", bs(montoAnticipo(r))).replaceAll("{enlace}", urlPaginaQR(r));
+const etiquetaAnticipo = (r) => {
+  if (!["pendiente", "confirmada"].includes(r.estado)) return "";
+  if (Number(r.anticipo) > 0) return `<span class="etiqueta registro oliva">Anticipo pagado</span>`;
+  if (r.qr_enviado_at) return `<span class="etiqueta registro amarillo">QR enviado</span>`;
+  return "";
+};
 
 // ================================================================ arranque / sesión
 async function iniciar() {
@@ -118,9 +137,9 @@ function filaReserva(r) {
   return `<div class="res e-${r.estado}" data-id="${r.id}">
     <div class="h">${hhmm(r.hora)}</div>
     <div><div class="t">${escapar(r.clientes?.nombre || "—")} <span class="small muted">· ${escapar(r.tipo_evento || "")}</span></div>
-      <div class="d">${r.raciones_total} rac · ${escapar(platos)}${r.showcooking ? " · 🔥 showcooking" : ""}</div>
+      <div class="d">${r.raciones_total} rac · ${escapar(platos)}${r.showcooking ? ` <span class="etiqueta show">Showcooking</span>` : ""}</div>
       <div class="d">${escapar([r.zona, r.direccion].filter(Boolean).join(" · "))}</div></div>
-    <div class="m">${chip(r.estado)}<b>${bs(r.total)}</b>${saldo(r) && r.estado !== "cancelada" ? `<span class="small muted">saldo ${bs(saldo(r))}</span>` : ""}</div>
+    <div class="m">${chip(r.estado)}${etiquetaAnticipo(r)}<b>${bs(r.total)}</b>${saldo(r) && r.estado !== "cancelada" ? `<span class="small muted">saldo ${bs(saldo(r))}</span>` : ""}</div>
   </div>`;
 }
 
@@ -334,7 +353,7 @@ async function vistaAjustes() {
     <div class="cab"><h1>Ajustes</h1></div>
     <div class="grid2">
       <div class="tarjeta">
-        <h2>📱 Calendario en el iPhone</h2>
+        <h2>Calendario en el iPhone</h2>
         <p class="bajada">Las reservas aparecen solas en el Calendario del iPhone, con aviso 24 h y 3 h antes.</p>
         ${modoDemo ? `<div class="aviso info">En modo demo no hay enlace real. Cuando conectes Supabase acá aparece tu enlace privado.</div>` : ""}
         <code class="url" id="url-cal">${escapar(url)}</code>
@@ -349,11 +368,27 @@ async function vistaAjustes() {
         ${modoDemo ? "" : `<button class="btn sec chico" id="regen">Generar enlace nuevo</button>`}
       </div>
       <div class="tarjeta">
-        <h2>🔗 Página pública de reservas</h2>
+        <h2>Página pública de reservas</h2>
         <p class="bajada">Compartila en Instagram, en la bio y como respuesta rápida de WhatsApp Business.</p>
         <code class="url">${escapar(publica)}</code>
         <button class="btn sec chico" id="copiar-pub">Copiar enlace</button>
       </div>
+      <form class="tarjeta cobro" id="fqr" style="grid-column:1/-1">
+        <h2>Cobro del anticipo</h2>
+        <p class="bajada">Subí el QR de tu banco. Desde cada reserva lo enviás por WhatsApp con el monto calculado y queda registrado cuándo se envió.</p>
+        <div class="cobro-grid">
+          <div class="qr-caja">
+            ${c.qr_url ? `<img src="${escapar(c.qr_url)}" alt="QR de cobro actual" id="qr-vista">` : `<div class="qr-vacio" id="qr-vista">Sin QR todavía</div>`}
+            <label class="btn sec chico qr-subir"><input type="file" name="qr" accept="image/png,image/jpeg,image/webp">${c.qr_url ? "Cambiar QR" : "Subir QR"}</label>
+          </div>
+          <div>
+            <label class="campo"><span>Porcentaje del anticipo (%)</span><input type="number" name="anticipo_porcentaje" value="${pctAnticipo()}" min="1" max="100"></label>
+            <label class="campo"><span>Mensaje de WhatsApp</span><textarea name="mensaje_anticipo" rows="5">${escapar(c.mensaje_anticipo || MENSAJE_ANTICIPO_BASE)}</textarea></label>
+            <p class="small muted" style="margin-top:-8px">Se reemplazan solos: <code>{nombre}</code> <code>{codigo}</code> <code>{fecha}</code> <code>{porcentaje}</code> <code>{monto}</code> <code>{enlace}</code> (el enlace abre la página con tu QR).</p>
+            <button class="btn">Guardar cobro</button>
+          </div>
+        </div>
+      </form>
       <form class="tarjeta" id="fcfg" style="grid-column:1/-1">
         <h2>Reglas de reserva</h2><p class="bajada">Se aplican al instante en la página pública.</p>
         <div class="fila">
@@ -387,6 +422,28 @@ async function vistaAjustes() {
     st.cfg = await datos.guardarConfig({ calendario_token: t });
     toast("Enlace nuevo generado: actualizalo en el iPhone"); vistaAjustes();
   });
+  let qrNuevo = null;
+  $("#fqr").qr.onchange = (e) => {
+    const a = e.target.files[0]; if (!a) return;
+    if (a.size > 2 * 1024 * 1024) { toast("La imagen pesa más de 2 MB"); e.target.value = ""; return; }
+    qrNuevo = a;
+    const v = $("#qr-vista"); const img = document.createElement("img");
+    img.id = "qr-vista"; img.alt = "Vista previa del QR"; img.src = URL.createObjectURL(a); v.replaceWith(img);
+    toast("Vista previa lista: tocá Guardar cobro");
+  };
+  $("#fqr").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target; const b = $("button.btn", f);
+    b.disabled = true; b.textContent = "Guardando…";
+    try {
+      const patch = {
+        anticipo_porcentaje: Math.min(100, Math.max(1, Number(f.anticipo_porcentaje.value) || 50)),
+        mensaje_anticipo: f.mensaje_anticipo.value.trim() || MENSAJE_ANTICIPO_BASE,
+      };
+      if (qrNuevo) patch.qr_url = await datos.subirQR(qrNuevo);
+      st.cfg = await datos.guardarConfig(patch);
+      qrNuevo = null; toast("Cobro guardado"); vistaAjustes();
+    } catch (err) { toast("No se pudo guardar: " + err.message); b.disabled = false; b.textContent = "Guardar cobro"; }
+  };
   $("#fcfg").onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; const n = (k) => Number(f[k].value);
     st.cfg = await datos.guardarConfig({
@@ -401,8 +458,9 @@ async function vistaAjustes() {
 
 // ================================================================ CAJÓN (detalle / formularios)
 function cajon(html) {
+  const yaAbierto = !!$("#velo"); // solo diseño: si se reemplaza un cajón abierto, no se repite la animación de entrada
   cerrarCajon();
-  const v = document.createElement("div"); v.className = "velo"; v.id = "velo";
+  const v = document.createElement("div"); v.className = yaAbierto ? "velo sin-anim" : "velo"; v.id = "velo";
   v.innerHTML = `<div class="cajon"><button class="cerrar" aria-label="Cerrar">×</button>${html}</div>`;
   v.onclick = (e) => { if (e.target === v || e.target.matches(".cerrar")) cerrarCajon(); };
   document.body.appendChild(v); document.body.style.overflow = "hidden";
@@ -427,6 +485,16 @@ function abrirReserva(id) {
     <p class="muted" style="margin-top:0">${ORIGEN[r.origen] || r.origen} · creada ${new Date(r.created_at).toLocaleDateString("es-BO")}</p>
 
     <div class="bloque"><h4>Estado</h4><div class="estados">${ESTADOS.map((e) => `<button data-estado="${e}" class="${r.estado === e ? "activo" : ""}">${ETQ[e]}</button>`).join("")}</div></div>
+
+    <div class="bloque anticipo"><h4>Anticipo</h4>
+      <div class="linea"><span>Anticipo del ${pctAnticipo()}%</span><b>${bs(montoAnticipo(r))}</b></div>
+      <div class="linea"><span>QR enviado</span><span id="qr-enviado">${r.qr_enviado_at ? fechaHora(r.qr_enviado_at) : "Todavía no"}</span></div>
+      <div class="linea"><span>Anticipo pagado</span><span>${Number(r.anticipo) > 0 ? `${bs(r.anticipo)}${r.anticipo_pagado_at ? " · " + fechaHora(r.anticipo_pagado_at) : ""}` : "Pendiente"}</span></div>
+      ${st.cfg?.qr_url
+        ? `<a class="btn wa chico" id="enviar-qr" target="_blank" rel="noopener" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(mensajeAnticipo(r, nombre1))}">WhatsApp · Enviar QR del anticipo</a>
+           <a class="small enlace-qr" href="${escapar(urlPaginaQR(r))}" target="_blank" rel="noopener">Ver lo que recibe el cliente ↗</a>`
+        : `<div class="aviso info" style="margin-bottom:0">Todavía no hay QR de cobro. <a href="#ajustes" id="ir-ajustes-qr">Subilo en Ajustes</a> para poder enviarlo desde acá.</div>`}
+    </div>
 
     <div class="bloque"><h4>Cliente</h4>
       <div style="font-weight:700;font-size:16px">${escapar(cli.nombre)}</div>
@@ -468,6 +536,11 @@ function abrirReserva(id) {
     return total;
   };
   f.oninput = recalcular;
+  $("#enviar-qr", c)?.addEventListener("click", async () => {
+    // se abre WhatsApp (enlace normal) y en paralelo queda registrado el envío
+    try { await guardarReserva(r, { qr_enviado_at: new Date().toISOString() }); $("#qr-enviado", c).textContent = fechaHora(new Date().toISOString()); } catch {}
+  });
+  $("#ir-ajustes-qr", c)?.addEventListener("click", (e) => { e.preventDefault(); cerrarCajon(); ir("ajustes"); });
   $(".estados", c).onclick = async (e) => {
     const b = e.target.closest("[data-estado]"); if (!b) return;
     await guardarReserva(r, { estado: b.dataset.estado }); toast("Estado: " + ETQ[b.dataset.estado]); abrirReserva(r.id);
@@ -478,6 +551,8 @@ function abrirReserva(id) {
       fecha: f.fecha.value, hora: f.hora.value, tipo_evento: f.tipo_evento.value, invitados: parseInt(f.invitados.value) || null,
       direccion: f.direccion.value, zona: f.zona.value, descuento: Number(f.descuento.value || 0), anticipo: Number(f.anticipo.value || 0),
       total: recalcular(), notas_internas: f.notas_internas.value,
+      // registro: cuándo se cargó el pago del anticipo
+      anticipo_pagado_at: Number(f.anticipo.value || 0) > 0 ? (r.anticipo_pagado_at || new Date().toISOString()) : null,
     });
     cerrarCajon(); toast("Reserva actualizada");
   };
@@ -499,7 +574,17 @@ function nuevaReserva() {
     <h2>Nueva reserva</h2>
     <p class="muted small" style="margin-top:0">Para pedidos que entran por WhatsApp, Instagram o en persona. Queda todo en el mismo registro.</p>
     <form id="fn">
-      <div class="bloque"><h4>Cliente</h4>
+      <div class="bloque anticipo"><h4>Anticipo</h4>
+      <div class="linea"><span>Anticipo del ${pctAnticipo()}%</span><b>${bs(montoAnticipo(r))}</b></div>
+      <div class="linea"><span>QR enviado</span><span id="qr-enviado">${r.qr_enviado_at ? fechaHora(r.qr_enviado_at) : "Todavía no"}</span></div>
+      <div class="linea"><span>Anticipo pagado</span><span>${Number(r.anticipo) > 0 ? `${bs(r.anticipo)}${r.anticipo_pagado_at ? " · " + fechaHora(r.anticipo_pagado_at) : ""}` : "Pendiente"}</span></div>
+      ${st.cfg?.qr_url
+        ? `<a class="btn wa chico" id="enviar-qr" target="_blank" rel="noopener" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(mensajeAnticipo(r, nombre1))}">WhatsApp · Enviar QR del anticipo</a>
+           <a class="small enlace-qr" href="${escapar(urlPaginaQR(r))}" target="_blank" rel="noopener">Ver lo que recibe el cliente ↗</a>`
+        : `<div class="aviso info" style="margin-bottom:0">Todavía no hay QR de cobro. <a href="#ajustes" id="ir-ajustes-qr">Subilo en Ajustes</a> para poder enviarlo desde acá.</div>`}
+    </div>
+
+    <div class="bloque"><h4>Cliente</h4>
         <div class="fila"><label class="campo"><span>Nombre *</span><input type="text" name="nombre" required></label>
           <label class="campo"><span>WhatsApp *</span><input type="tel" name="telefono" required></label></div>
         <label class="campo" style="margin:0"><span>¿Por dónde llegó?</span><select name="origen"><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="manual">En persona / teléfono</option><option value="otro">Otro</option></select></label>
