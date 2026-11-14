@@ -24,7 +24,7 @@ create table if not exists configuracion (
   horarios                   text[]  not null default array['11:00','12:00','13:00','18:00','19:00','20:00','21:00'],
   dias_bloqueados            date[]  not null default '{}',
   -- Token secreto para el calendario del iPhone (no se expone al público)
-  calendario_token           text    not null default encode(gen_random_bytes(18), 'hex'),
+  calendario_token           text    not null default encode(extensions.gen_random_bytes(18), 'hex'),
   updated_at                 timestamptz not null default now()
 );
 insert into configuracion (id) values (1) on conflict do nothing;
@@ -61,7 +61,7 @@ create table if not exists clientes (
 -- ---------------------------------------------------------------------
 create table if not exists reservas (
   id                uuid primary key default gen_random_uuid(),
-  codigo            text not null unique default upper(substr(encode(gen_random_bytes(4),'hex'),1,6)),
+  codigo            text not null unique default upper(substr(encode(extensions.gen_random_bytes(4),'hex'),1,6)),
   cliente_id        uuid not null references clientes(id) on delete restrict,
   fecha             date not null,
   hora              time not null,
@@ -87,6 +87,7 @@ create table if not exists reservas (
 );
 create index if not exists reservas_fecha_idx  on reservas (fecha);
 create index if not exists reservas_estado_idx on reservas (estado);
+create index if not exists reservas_cliente_idx on reservas (cliente_id);
 
 create table if not exists reserva_items (
   id          uuid primary key default gen_random_uuid(),
@@ -98,6 +99,7 @@ create table if not exists reserva_items (
   subtotal    numeric(10,2) generated always as (raciones * precio_unit) stored
 );
 create index if not exists reserva_items_reserva_idx on reserva_items (reserva_id);
+create index if not exists reserva_items_producto_idx on reserva_items (producto_id);
 
 -- ---------------------------------------------------------------------
 -- Administradores (usuarios de Supabase Auth que pueden ver el panel)
@@ -114,7 +116,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- updated_at automático
-create or replace function tocar_updated_at() returns trigger language plpgsql as $$
+create or replace function tocar_updated_at() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at = now(); return new; end $$;
 drop trigger if exists reservas_updated on reservas;
 create trigger reservas_updated before update on reservas
@@ -133,25 +135,20 @@ alter table reservas        enable row level security;
 alter table reserva_items   enable row level security;
 alter table administradores enable row level security;
 
-drop policy if exists productos_publico on productos;
-create policy productos_publico on productos for select using (activo or es_admin());
-drop policy if exists productos_admin on productos;
-create policy productos_admin on productos for all using (es_admin()) with check (es_admin());
+create policy productos_publico on productos for select using (activo or (select es_admin()));
+create policy productos_admin_ins on productos for insert with check ((select es_admin()));
+create policy productos_admin_upd on productos for update using ((select es_admin())) with check ((select es_admin()));
+create policy productos_admin_del on productos for delete using ((select es_admin()));
 
-drop policy if exists config_admin on configuracion;
-create policy config_admin on configuracion for all using (es_admin()) with check (es_admin());
+create policy config_admin on configuracion for all using ((select es_admin())) with check ((select es_admin()));
 
-drop policy if exists clientes_admin on clientes;
-create policy clientes_admin on clientes for all using (es_admin()) with check (es_admin());
+create policy clientes_admin on clientes for all using ((select es_admin())) with check ((select es_admin()));
 
-drop policy if exists reservas_admin on reservas;
-create policy reservas_admin on reservas for all using (es_admin()) with check (es_admin());
+create policy reservas_admin on reservas for all using ((select es_admin())) with check ((select es_admin()));
 
-drop policy if exists items_admin on reserva_items;
-create policy items_admin on reserva_items for all using (es_admin()) with check (es_admin());
+create policy items_admin on reserva_items for all using ((select es_admin())) with check ((select es_admin()));
 
-drop policy if exists admins_self on administradores;
-create policy admins_self on administradores for select using (user_id = auth.uid());
+create policy admins_self on administradores for select using (user_id = (select auth.uid()));
 
 -- Configuración visible al público (sin el token del calendario)
 create or replace function config_publica() returns json
@@ -172,7 +169,7 @@ create or replace function disponibilidad(desde date, hasta date)
 returns table (fecha date, eventos int, raciones int, lleno boolean, bloqueado boolean)
 language sql stable security definer set search_path = public as $$
   with c as (select * from configuracion where id = 1),
-  dias as (select generate_series(desde, hasta, interval '1 day')::date as fecha),
+  dias as (select generate_series(desde, least(hasta, desde + 400), interval '1 day')::date as fecha),
   ocup as (
     select r.fecha, count(*)::int as eventos, coalesce(sum(r.raciones_total),0)::int as raciones
     from reservas r where r.estado <> 'cancelada' and r.fecha between desde and hasta
@@ -217,24 +214,40 @@ declare
 begin
   select * into c from configuracion where id = 1;
 
+  -- solo el panel (admin) puede cargar reservas que no vengan de la web
+  if coalesce(p_origen,'web') <> 'web' and not es_admin() then
+    p_origen := 'web';
+  end if;
+  p_origen := coalesce(p_origen,'web');
+
   if coalesce(trim(p_nombre),'') = '' or length(v_tel) < 7 then
     raise exception 'Nombre y teléfono son obligatorios';
   end if;
-  if p_items is null or jsonb_array_length(p_items) = 0 then
+  if length(p_nombre) > 120 or length(coalesce(p_notas,'')) > 2000 or length(coalesce(p_direccion,'')) > 300 then
+    raise exception 'Algún dato es demasiado largo';
+  end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 or jsonb_array_length(p_items) > 20 then
     raise exception 'Elegí al menos una paella';
   end if;
+  if p_fecha > current_date + 400 then
+    raise exception 'Solo se puede reservar hasta un año adelante';
+  end if;
   if (p_fecha + p_hora::time) < (now() at time zone 'America/La_Paz') + make_interval(hours => c.anticipacion_min_horas)
-     and coalesce(p_origen,'web') = 'web' then
+     and p_origen = 'web' then
     raise exception 'Las reservas web necesitan al menos % horas de anticipación', c.anticipacion_min_horas;
   end if;
-  if p_fecha = any(c.dias_bloqueados) then
+  if p_fecha = any(c.dias_bloqueados) and p_origen = 'web' then
     raise exception 'Ese día no está disponible';
+  end if;
+  if p_origen = 'web' and not (p_hora = any(c.horarios)) then
+    raise exception 'Ese horario no está disponible';
   end if;
 
   -- totales calculados con los precios reales de la carta
   for it in select * from jsonb_array_elements(p_items) loop
     n := (it->>'raciones')::int;
     if n is null or n <= 0 then continue; end if;
+    if n > 500 then raise exception 'Cantidad de raciones no válida'; end if;
     select * into p from productos where id = (it->>'producto_id')::uuid and activo;
     if not found then raise exception 'Una de las paellas ya no está disponible'; end if;
     v_raciones := v_raciones + n;
@@ -272,7 +285,7 @@ begin
                         raciones_total, showcooking, costo_showcooking, subtotal, total, notas_cliente, origen)
   values (v_cliente, p_fecha, p_hora::time, c.duracion_evento_min, p_tipo_evento, p_direccion, p_zona, p_invitados,
           v_raciones, coalesce(p_showcooking,false), v_show_cost, v_subtotal, v_subtotal + v_show_cost,
-          p_notas, coalesce(p_origen,'web'))
+          p_notas, p_origen)
   returning * into v_reserva;
 
   insert into reserva_items (reserva_id, producto_id, nombre, raciones, precio_unit)
@@ -286,12 +299,13 @@ begin
                            'hora', to_char(v_reserva.hora,'HH24:MI'));
 end $$;
 
-revoke all on function crear_reserva from public;
-grant execute on function crear_reserva to anon, authenticated;
-grant execute on function disponibilidad to anon, authenticated;
-grant execute on function horas_ocupadas to anon, authenticated;
-grant execute on function config_publica to anon, authenticated;
-grant execute on function es_admin to anon, authenticated;
+revoke all on function crear_reserva(text,text,text,date,text,text,text,text,int,boolean,text,jsonb,text) from public;
+revoke all on function tocar_updated_at() from public, anon, authenticated;
+grant execute on function crear_reserva(text,text,text,date,text,text,text,text,int,boolean,text,jsonb,text) to anon, authenticated;
+grant execute on function disponibilidad(date,date) to anon, authenticated;
+grant execute on function horas_ocupadas(date) to anon, authenticated;
+grant execute on function config_publica() to anon, authenticated;
+grant execute on function es_admin() to anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- Vistas de análisis (respetan RLS: solo admin)

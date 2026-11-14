@@ -39,7 +39,12 @@ Si `docs/js/config.js` está vacío, el sitio funciona con datos de ejemplo guar
 
 ---
 
-## Puesta en marcha (unos 20 minutos)
+## Estado actual
+- Supabase: proyecto `arrozame-reservas` (ref `ncwkdnqaurqtduhwweua`, São Paulo, org Hippo Brands) con la base cargada, la carta de junio 2026 y la función `calendario` desplegada.
+- `docs/js/config.js` ya apunta a ese proyecto.
+- Pendiente: publicar en GitHub Pages y crear el usuario de Fer (paso 4).
+
+## Puesta en marcha desde cero (unos 20 minutos)
 
 ### 1. Subir a GitHub
 ```bash

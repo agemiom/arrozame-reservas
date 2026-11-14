@@ -7,5 +7,5 @@
 // Si los dejás vacíos, el sitio funciona en MODO DEMO con datos de ejemplo
 // guardados solo en este navegador.
 // =====================================================================
-export const SUPABASE_URL = "";
-export const SUPABASE_ANON_KEY = "";
+export const SUPABASE_URL = "https://ncwkdnqaurqtduhwweua.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_V-X4uwHpDOqM3pan0GqVpA_0Ej8ZMmo";
