@@ -10,7 +10,7 @@ const COLOR_EV = { pendiente: "#FBEBC7", confirmada: "#E3E6D8", pagada: "#DCEBD8
 const ORIGEN = { web: "Web", whatsapp: "WhatsApp", instagram: "Instagram", manual: "Manual", otro: "Otro" };
 
 const st = {
-  vista: "agenda", reservas: [], productos: [], cfg: null,
+  vista: "agenda", reservas: [], productos: [], cfg: null, personal: [],
   agenda: { modo: "proximas", estado: "", q: "" },
   mesCal: hoyISO().slice(0, 7),
   periodo: 6, metrica: "raciones",
@@ -34,6 +34,38 @@ const MENSAJE_ANTICIPO_BASE = "¡Hola {nombre}! Para asegurar tu reserva *{codig
 const mensajeAnticipo = (r, nombre1) => (st.cfg?.mensaje_anticipo || MENSAJE_ANTICIPO_BASE)
   .replaceAll("{nombre}", nombre1).replaceAll("{codigo}", r.codigo).replaceAll("{fecha}", fechaLarga(r.fecha))
   .replaceAll("{porcentaje}", pctAnticipo()).replaceAll("{monto}", bs(montoAnticipo(r))).replaceAll("{enlace}", urlPaginaQR(r));
+// ---- equipo, orden de compra y gastos
+const CATEGORIAS = { ingredientes: "Ingredientes", gas: "Gas", transporte: "Transporte", personal: "Personal", otros: "Otros" };
+const COMPRA = { pendiente: "Falta compra", pedida: "Compra pedida", comprada: "Comprado" };
+const totalGastos = (r) => (r.gastos || []).reduce((t, g) => t + Number(g.monto || 0), 0);
+const personaDe = (id) => st.personal.find((p) => p.id === id);
+const equipoDe = (r) => (r.equipo || []).map(personaDe).filter(Boolean);
+const ordenCompra = (r) => {
+  const items = (r.reserva_items || []).map((i) => `• ${i.raciones} raciones · ${i.nombre}`).join("\n");
+  const lugar = [r.direccion, r.zona].filter(Boolean).join(", ");
+  const equipo = equipoDe(r).map((p) => p.nombre).join(", ");
+  return [
+    "*Orden de compra · Arrózame*",
+    `Reserva ${r.codigo} · ${fechaLarga(r.fecha)} · ${hhmm(r.hora)}`,
+    [r.tipo_evento, r.invitados ? `${r.invitados} invitados` : ""].filter(Boolean).join(" · "),
+    lugar ? `Lugar: ${lugar}` : "",
+    lugar ? `Mapa: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lugar + ", Santa Cruz, Bolivia")}` : "",
+    "",
+    "Paellas:", items,
+    `Total: ${r.raciones_total} raciones`,
+    `Showcooking: ${r.showcooking ? "Sí" : "No"}`,
+    equipo ? `Equipo: ${equipo}` : "",
+    r.notas_cliente ? `Notas del cliente: ${r.notas_cliente}` : "",
+    "",
+    "Cuando tengas la compra, mandame la foto del ticket. ¡Gracias!",
+  ].filter((l, i, a) => l !== "" || (a[i - 1] !== "" && i > 0)).join("\n");
+};
+const etiquetaCompra = (r) => {
+  if (!["confirmada", "pagada"].includes(r.estado) || r.fecha < hoyISO()) return "";
+  const e = r.compra_estado || "pendiente";
+  const color = { pendiente: "terracota", pedida: "amarillo", comprada: "oliva" }[e];
+  return `<span class="etiqueta registro ${color}">${COMPRA[e]}</span>`;
+};
 const etiquetaAnticipo = (r) => {
   if (!["pendiente", "confirmada"].includes(r.estado)) return "";
   if (Number(r.anticipo) > 0) return `<span class="etiqueta registro oliva">Anticipo pagado</span>`;
@@ -72,8 +104,8 @@ async function entrar(u) {
 }
 
 async function recargar() {
-  [st.reservas, st.productos, st.cfg] = await Promise.all([
-    datos.reservas(), datos.productos({ todos: true }), datos.configCompleta(),
+  [st.reservas, st.productos, st.cfg, st.personal] = await Promise.all([
+    datos.reservas(), datos.productos({ todos: true }), datos.configCompleta(), datos.personal().catch(() => []),
   ]);
 }
 
@@ -139,7 +171,7 @@ function filaReserva(r) {
     <div><div class="t">${escapar(r.clientes?.nombre || "—")} <span class="small muted">· ${escapar(r.tipo_evento || "")}</span></div>
       <div class="d">${r.raciones_total} rac · ${escapar(platos)}${r.showcooking ? ` <span class="etiqueta show">Showcooking</span>` : ""}</div>
       <div class="d">${escapar([r.zona, r.direccion].filter(Boolean).join(" · "))}</div></div>
-    <div class="m">${chip(r.estado)}${etiquetaAnticipo(r)}<b>${bs(r.total)}</b>${saldo(r) && r.estado !== "cancelada" ? `<span class="small muted">saldo ${bs(saldo(r))}</span>` : ""}</div>
+    <div class="m">${chip(r.estado)}${etiquetaAnticipo(r)}${etiquetaCompra(r)}<b>${bs(r.total)}</b>${saldo(r) && r.estado !== "cancelada" ? `<span class="small muted">saldo ${bs(saldo(r))}</span>` : ""}</div>
   </div>`;
 }
 
@@ -196,6 +228,13 @@ function vistaEstadisticas() {
   const raciones = rs.reduce((s, r) => s + r.raciones_total, 0);
   const conShow = rs.filter((r) => r.showcooking).length;
   const canceladas = st.reservas.filter((r) => r.estado === "cancelada" && r.fecha >= desde).length;
+  // gastos y margen (solo eventos con gastos cargados, para no inflar el margen)
+  const conGasto = rs.filter((r) => totalGastos(r) > 0);
+  const gastoTotal = conGasto.reduce((t, r) => t + totalGastos(r), 0);
+  const cobradoConGasto = conGasto.reduce((t, r) => t + Number(r.total), 0);
+  const margen = cobradoConGasto - gastoTotal;
+  const porCat = {}; conGasto.forEach((r) => (r.gastos || []).forEach((g) => { porCat[g.categoria] = (porCat[g.categoria] || 0) + Number(g.monto); }));
+  const ultimos = [...conGasto].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 12);
 
   // Paellas
   const pa = {};
@@ -231,6 +270,8 @@ function vistaEstadisticas() {
       <div class="kpi"><div class="lbl">Ingresos</div><div class="val">${bs(ingresos)}</div><div class="sub">${rs.length} eventos</div></div>
       <div class="kpi"><div class="lbl">Raciones</div><div class="val">${raciones.toLocaleString("es-BO")}</div><div class="sub">${rs.length ? Math.round(raciones / rs.length) : 0} por evento</div></div>
       <div class="kpi"><div class="lbl">Ticket promedio</div><div class="val">${bs(rs.length ? ingresos / rs.length : 0)}</div><div class="sub">por reserva</div></div>
+      <div class="kpi"><div class="lbl">Gastos</div><div class="val">${bs(gastoTotal)}</div><div class="sub">en ${conGasto.length} eventos con gastos cargados</div></div>
+      <div class="kpi"><div class="lbl">Margen</div><div class="val" style="color:var(--oliva-osc)">${bs(margen)}</div><div class="sub">${cobradoConGasto ? Math.round((margen / cobradoConGasto) * 100) : 0}% sobre esos eventos</div></div>
       <div class="kpi"><div class="lbl">Con showcooking</div><div class="val">${rs.length ? Math.round((conShow / rs.length) * 100) : 0}%</div><div class="sub">${canceladas} cancelaciones</div></div>
     </div>
     <div class="grid2">
@@ -242,6 +283,12 @@ function vistaEstadisticas() {
           <div class="scroll-x"><table class="tabla" style="margin-top:8px"><thead><tr><th>Paella</th><th class="num">Raciones</th><th class="num">Pedidos</th><th class="num">Ingresos</th><th class="num">% ingresos</th></tr></thead>
           <tbody>${paellas.map((p) => `<tr><td>${escapar(p.nombre)}</td><td class="num">${p.raciones}</td><td class="num">${p.reservas}</td><td class="num">${bs(p.ingresos)}</td><td class="num">${ingresos ? Math.round((p.ingresos / Object.values(pa).reduce((s, x) => s + x.ingresos, 0)) * 100) : 0}%</td></tr>`).join("")}</tbody></table></div></details>
       </div>
+      <div class="tarjeta"><h2>Gastos por categoría</h2><p class="bajada">Eventos con gastos cargados</p>
+        ${barras(Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ nombre: CATEGORIAS[k] || k, v })), bs)}</div>
+      <div class="tarjeta"><h2>Margen por evento</h2><p class="bajada">Últimos eventos con gastos cargados</p>
+        ${ultimos.length ? `<div class="scroll-x"><table class="tabla"><thead><tr><th>Fecha</th><th>Cliente</th><th class="num">Cobrado</th><th class="num">Gastado</th><th class="num">Margen</th></tr></thead>
+        <tbody>${ultimos.map((r) => { const g = totalGastos(r), m = Number(r.total) - g; return `<tr data-id="${r.id}" class="fila-click"><td>${r.fecha.slice(8)}/${r.fecha.slice(5, 7)}</td><td>${escapar(r.clientes?.nombre || "—")}</td><td class="num">${bs(r.total)}</td><td class="num">${bs(g)}</td><td class="num"><b>${bs(m)}</b> <span class="small muted">${Number(r.total) ? Math.round((m / Number(r.total)) * 100) : 0}%</span></td></tr>`; }).join("")}</tbody></table></div>`
+        : `<p class="muted small">Todavía no hay gastos cargados. Se cargan desde cada reserva.</p>`}</div>
       <div class="tarjeta"><h2>Ingresos por mes</h2><p class="bajada">Por fecha del evento</p>
         ${columnas(mesesArr.map((x) => ({ et: new Date(x.k + "-15").toLocaleDateString("es-BO", { month: "short" }), v: x.ingresos, lbl: x.ingresos >= 1000 ? Math.round(x.ingresos / 1000) + "k" : x.ingresos, tip: `<b>${new Date(x.k + "-15").toLocaleDateString("es-BO", { month: "long", year: "numeric" })}</b><br>${bs(x.ingresos)} · ${x.reservas} eventos · ${x.raciones} raciones` })))}</div>
       <div class="tarjeta"><h2>Días con más demanda</h2><p class="bajada">Cantidad de eventos por día de la semana</p>
@@ -253,6 +300,7 @@ function vistaEstadisticas() {
     </div>`;
   $("#seg-per").onclick = (e) => { const b = e.target.closest("button"); if (b) { st.periodo = Number(b.dataset.k); pintar(); } };
   $("#seg-met").onclick = (e) => { const b = e.target.closest("button"); if (b) { st.metrica = b.dataset.k; pintar(); } };
+  $$(".fila-click").forEach((tr) => (tr.onclick = () => abrirReserva(tr.dataset.id)));
   activarTips();
 }
 function barras(items, fmt, numerado = false) {
@@ -373,6 +421,19 @@ async function vistaAjustes() {
         <code class="url">${escapar(publica)}</code>
         <button class="btn sec chico" id="copiar-pub">Copiar enlace</button>
       </div>
+      <div class="tarjeta" id="t-equipo" style="grid-column:1/-1">
+        <h2>Equipo</h2>
+        <p class="bajada">Las personas que van a las paellas. En cada reserva elegís quiénes van y les mandás la orden de compra por WhatsApp.</p>
+        <div class="equipo-lista">${st.personal.length ? st.personal.map((p) => `<div class="persona ${p.activo ? "" : "inactiva"}">
+            <div><b>${escapar(p.nombre)}</b><span class="small muted">${p.telefono ? escapar(p.telefono) : "Sin WhatsApp"}${p.activo ? "" : " · inactivo"}</span></div>
+            <button type="button" class="btn sec chico" data-toggle-persona="${p.id}">${p.activo ? "Desactivar" : "Activar"}</button></div>`).join("")
+          : `<p class="small muted">Todavía no hay nadie cargado.</p>`}</div>
+        <form id="fpersona" class="fila-persona">
+          <input type="text" name="nombre" placeholder="Nombre" aria-label="Nombre" required>
+          <input type="tel" name="telefono" placeholder="WhatsApp (ej. 70000000)" aria-label="WhatsApp" inputmode="tel">
+          <button class="btn chico">Agregar</button>
+        </form>
+      </div>
       <form class="tarjeta cobro" id="fqr" style="grid-column:1/-1">
         <h2>Cobro del anticipo</h2>
         <p class="bajada">Subí el QR de tu banco. Desde cada reserva lo enviás por WhatsApp con el monto calculado y queda registrado cuándo se envió.</p>
@@ -422,6 +483,19 @@ async function vistaAjustes() {
     st.cfg = await datos.guardarConfig({ calendario_token: t });
     toast("Enlace nuevo generado: actualizalo en el iPhone"); vistaAjustes();
   });
+  $("#fpersona").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target;
+    try {
+      await datos.guardarPersona({ nombre: f.nombre.value.trim(), telefono: f.telefono.value.replace(/[^0-9+]/g, "") || null, activo: true });
+      st.personal = await datos.personal(); toast("Agregado al equipo"); vistaAjustes();
+    } catch (err) { toast("No se pudo guardar: " + err.message); }
+  };
+  $("#t-equipo").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-toggle-persona]"); if (!b) return;
+    const p = st.personal.find((x) => x.id === b.dataset.togglePersona);
+    try { await datos.guardarPersona({ id: p.id, activo: !p.activo }); st.personal = await datos.personal(); vistaAjustes(); }
+    catch (err) { toast("No se pudo guardar: " + err.message); }
+  });
   let qrNuevo = null;
   $("#fqr").qr.onchange = (e) => {
     const a = e.target.files[0]; if (!a) return;
@@ -458,12 +532,14 @@ async function vistaAjustes() {
 
 // ================================================================ CAJÓN (detalle / formularios)
 function cajon(html) {
-  const yaAbierto = !!$("#velo"); // solo diseño: si se reemplaza un cajón abierto, no se repite la animación de entrada
+  const yaAbierto = !!$("#velo"); // si se reemplaza un cajón abierto, no se repite la animación de entrada
+  const scrollPrevio = $("#velo .cajon")?.scrollTop || 0;      // ni se pierde la posición
   cerrarCajon();
   const v = document.createElement("div"); v.className = yaAbierto ? "velo sin-anim" : "velo"; v.id = "velo";
   v.innerHTML = `<div class="cajon"><button class="cerrar" aria-label="Cerrar">×</button>${html}</div>`;
   v.onclick = (e) => { if (e.target === v || e.target.matches(".cerrar")) cerrarCajon(); };
   document.body.appendChild(v); document.body.style.overflow = "hidden";
+  if (yaAbierto) $(".cajon", v).scrollTop = scrollPrevio;
   return v;
 }
 function cerrarCajon() { $("#velo")?.remove(); document.body.style.overflow = ""; }
@@ -500,6 +576,41 @@ function abrirReserva(id) {
       <div style="font-weight:700;font-size:16px">${escapar(cli.nombre)}</div>
       <div class="small"><a href="https://wa.me/${telWa(cli.telefono)}" target="_blank">${escapar(cli.telefono)}</a>${cli.email ? " · " + escapar(cli.email) : ""}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${Object.entries(plantillas).map(([k, t]) => `<a class="btn wa chico" target="_blank" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(t)}">WhatsApp · ${k}</a>`).join("")}</div>
+    </div>
+
+    <div class="bloque compra" id="bloque-compra"><h4>Equipo y compra</h4>
+      ${st.personal.some((p) => p.activo)
+        ? `<p class="small muted" style="margin:0 0 8px">¿Quiénes van a este evento?</p>
+           <div class="equipo-chips">${st.personal.filter((p) => p.activo || (r.equipo || []).includes(p.id)).map((p) => `<label class="chip-check"><input type="checkbox" value="${p.id}" ${(r.equipo || []).includes(p.id) ? "checked" : ""}><span>${escapar(p.nombre)}</span></label>`).join("")}</div>`
+        : `<div class="aviso info">Todavía no cargaste tu equipo. <a href="#ajustes" id="ir-ajustes-equipo">Agregalo en Ajustes</a>.</div>`}
+      <div class="estados compra-estado">${Object.entries(COMPRA).map(([k, t]) => `<button type="button" data-compra="${k}" class="${(r.compra_estado || "pendiente") === k ? "activo" : ""}">${t}</button>`).join("")}</div>
+      <div class="linea"><span>Orden enviada</span><span>${r.orden_compra_enviada_at ? fechaHora(r.orden_compra_enviada_at) : "Todavía no"}</span></div>
+      <div class="envios">${equipoDe(r).filter((p) => p.telefono).map((p) => `<a class="btn wa chico" data-enviar-orden target="_blank" rel="noopener" href="https://wa.me/${telWa(p.telefono)}?text=${encodeURIComponent(ordenCompra(r))}">WhatsApp · ${escapar(p.nombre.split(" ")[0])}</a>`).join("")
+        || `<p class="small muted" style="margin:0">Elegí quiénes van para mandarles la orden por WhatsApp.</p>`}</div>
+      <button type="button" class="btn sec chico" id="copiar-orden">Copiar orden (para pegar en un grupo)</button>
+    </div>
+
+    <div class="bloque gastos"><h4>Gastos del evento</h4>
+      ${(r.gastos || []).length
+        ? `<div class="lista-gastos">${r.gastos.map((g) => `<div class="gasto">
+            <span class="etiqueta registro gris">${CATEGORIAS[g.categoria] || g.categoria}</span>
+            <span class="det">${escapar(g.descripcion || "")}</span>
+            <b>${bs(g.monto)}</b>
+            ${g.ticket_path ? `<button type="button" class="mini" data-ver-ticket="${escapar(g.ticket_path)}">Ticket</button>` : ""}
+            <button type="button" class="mini borrar" data-borrar-gasto="${g.id}" aria-label="Borrar gasto de ${bs(g.monto)}">×</button></div>`).join("")}</div>`
+        : `<p class="small muted" style="margin:0 0 8px">Todavía no hay gastos cargados.</p>`}
+      <div class="resultado franja">
+        <div class="linea"><span>Cobrado</span><span>${bs(r.total)}</span></div>
+        <div class="linea"><span>Gastado</span><span>${bs(totalGastos(r))}</span></div>
+        <div class="linea margen"><span>Margen</span><b>${bs(Number(r.total) - totalGastos(r))}${Number(r.total) && totalGastos(r) ? ` · ${Math.round(((Number(r.total) - totalGastos(r)) / Number(r.total)) * 100)}%` : ""}</b></div>
+      </div>
+      <form id="fg" class="form-gasto">
+        <div class="fila"><label class="campo"><span>Categoría</span><select name="categoria">${Object.entries(CATEGORIAS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+          <label class="campo"><span>Monto (Bs)</span><input type="number" name="monto" min="0" step="0.5" inputmode="decimal" required></label></div>
+        <label class="campo"><span>Detalle (opcional)</span><input type="text" name="descripcion" placeholder="Ej. mercado Abasto, garrafa, flete"></label>
+        <label class="btn sec chico ticket-subir"><input type="file" name="ticket" accept="image/*,application/pdf"><span id="ticket-nombre">Adjuntar foto del ticket</span></label>
+        <button class="btn chico">Agregar gasto</button>
+      </form>
     </div>
 
     <form id="fr">
@@ -541,9 +652,73 @@ function abrirReserva(id) {
     try { await guardarReserva(r, { qr_enviado_at: new Date().toISOString() }); $("#qr-enviado", c).textContent = fechaHora(new Date().toISOString()); } catch {}
   });
   $("#ir-ajustes-qr", c)?.addEventListener("click", (e) => { e.preventDefault(); cerrarCajon(); ir("ajustes"); });
+  $("#ir-ajustes-equipo", c)?.addEventListener("click", (e) => { e.preventDefault(); cerrarCajon(); ir("ajustes"); });
+  // equipo del evento
+  $$(".equipo-chips input", c).forEach((i) => i.addEventListener("change", async () => {
+    await guardarReserva(r, { equipo: $$(".equipo-chips input:checked", c).map((x) => x.value) }); abrirReserva(r.id);
+  }));
+  // estado de la compra
+  $(".compra-estado", c).onclick = async (e) => {
+    const b = e.target.closest("[data-compra]"); if (!b) return;
+    await guardarReserva(r, { compra_estado: b.dataset.compra }); toast(COMPRA[b.dataset.compra]); abrirReserva(r.id);
+  };
+  // envío de la orden: queda registrado
+  const registrarOrden = async () => {
+    const patch = { orden_compra_enviada_at: new Date().toISOString() };
+    if ((r.compra_estado || "pendiente") === "pendiente") patch.compra_estado = "pedida";
+    await guardarReserva(r, patch); abrirReserva(r.id);
+  };
+  $$("[data-enviar-orden]", c).forEach((a) => a.addEventListener("click", () => { registrarOrden().catch(() => {}); }));
+  $("#copiar-orden", c).onclick = async () => {
+    try { await navigator.clipboard.writeText(ordenCompra(r)); toast("Orden copiada: pegala en el grupo"); await registrarOrden(); }
+    catch { toast("No se pudo copiar"); }
+  };
+  // gastos
+  const fg = $("#fg", c);
+  fg.ticket.onchange = () => { $("#ticket-nombre", c).textContent = fg.ticket.files[0] ? "Ticket: " + fg.ticket.files[0].name : "Adjuntar foto del ticket"; };
+  fg.onsubmit = async (e) => {
+    e.preventDefault(); const b = $("button.btn:not(.sec)", fg); b.disabled = true; b.textContent = "Guardando…";
+    try {
+      const archivo = fg.ticket.files[0];
+      if (archivo && archivo.size > 5 * 1024 * 1024) throw new Error("el ticket pesa más de 5 MB");
+      const ticket_path = archivo ? await datos.subirTicket(archivo, r.id) : null;
+      const g = await datos.agregarGasto({ reserva_id: r.id, categoria: fg.categoria.value, monto: Number(fg.monto.value), descripcion: fg.descripcion.value.trim() || null, ticket_path });
+      const rr = st.reservas.find((x) => x.id === r.id); rr.gastos = [...(rr.gastos || []), g];
+      if (g.categoria === "ingredientes" && (r.compra_estado || "pendiente") !== "comprada") await guardarReserva(rr, { compra_estado: "comprada" });
+      else pintar();
+      toast("Gasto agregado"); abrirReserva(r.id);
+    } catch (err) { toast("No se pudo guardar: " + err.message); b.disabled = false; b.textContent = "Agregar gasto"; }
+  };
+  $(".gastos", c).addEventListener("click", async (e) => {
+    const ver = e.target.closest("[data-ver-ticket]");
+    if (ver) {
+      const w = window.open("", "_blank");
+      try {
+        const url = await datos.urlTicket(ver.dataset.verTicket);
+        if (url.startsWith("data:")) { w.document.title = "Ticket"; w.document.body.style.margin = "0"; const img = w.document.createElement("img"); img.src = url; img.style.maxWidth = "100%"; w.document.body.appendChild(img); }
+        else w.location.href = url;
+      } catch (err) { w?.close(); toast("No se pudo abrir el ticket"); }
+      return;
+    }
+    const borrar = e.target.closest("[data-borrar-gasto]");
+    if (borrar) {
+      const g = (r.gastos || []).find((x) => x.id === borrar.dataset.borrarGasto); if (!g) return;
+      if (!confirm(`¿Borrar el gasto de ${bs(g.monto)} (${CATEGORIAS[g.categoria]})?`)) return;
+      try {
+        await datos.borrarGasto(g);
+        const rr = st.reservas.find((x) => x.id === r.id); rr.gastos = (rr.gastos || []).filter((x) => x.id !== g.id);
+        pintar(); toast("Gasto borrado"); abrirReserva(r.id);
+      } catch (err) { toast("No se pudo borrar: " + err.message); }
+    }
+  });
   $(".estados", c).onclick = async (e) => {
     const b = e.target.closest("[data-estado]"); if (!b) return;
     await guardarReserva(r, { estado: b.dataset.estado }); toast("Estado: " + ETQ[b.dataset.estado]); abrirReserva(r.id);
+    const nueva = st.reservas.find((x) => x.id === r.id);
+    if (b.dataset.estado === "confirmada" && (nueva?.compra_estado || "pendiente") === "pendiente") {
+      const bloque = $("#bloque-compra"); bloque?.classList.add("resaltar"); bloque?.scrollIntoView({ behavior: "smooth", block: "start" });
+      toast("Confirmada · ahora mandá la orden de compra al equipo");
+    }
   };
   f.onsubmit = async (e) => {
     e.preventDefault();

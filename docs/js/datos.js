@@ -42,7 +42,7 @@ const ok = ({ data, error }) => {
 const limpiarError = (m = "") => m.replace(/^.*?ERROR:\s*/, "").replace(/\s*\(SQLSTATE.*$/, "");
 
 const SELECT_RESERVA =
-  "*, clientes(id, nombre, telefono, email), reserva_items(id, nombre, raciones, precio_unit, subtotal, producto_id)";
+  "*, clientes(id, nombre, telefono, email), reserva_items(id, nombre, raciones, precio_unit, subtotal, producto_id), gastos(*)";
 
 const remoto = {
   async config() { return ok(await (await cliente()).rpc("config_publica")); },
@@ -104,6 +104,29 @@ const remoto = {
   async actualizarCliente(id, patch) {
     return ok(await (await cliente()).from("clientes").update(patch).eq("id", id).select().single());
   },
+  // ---- equipo ----
+  async personal() { return ok(await (await cliente()).from("personal").select("*").order("created_at")); },
+  async guardarPersona(p) {
+    const c = await cliente(); const { id, ...resto } = p;
+    return ok(id ? await c.from("personal").update(resto).eq("id", id).select().single()
+                 : await c.from("personal").insert(resto).select().single());
+  },
+  // ---- gastos ----
+  async agregarGasto(g) { return ok(await (await cliente()).from("gastos").insert(g).select().single()); },
+  async borrarGasto(g) {
+    const c = await cliente();
+    if (g.ticket_path) await c.storage.from("tickets").remove([g.ticket_path]);
+    return ok(await c.from("gastos").delete().eq("id", g.id));
+  },
+  // ticket en bucket PRIVADO: se guarda la ruta y se ve con un enlace firmado temporal
+  async subirTicket(archivo, reservaId) {
+    const c = await cliente();
+    const ext = (archivo.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const ruta = `${reservaId}/${Date.now()}.${ext}`;
+    ok(await c.storage.from("tickets").upload(ruta, archivo, { contentType: archivo.type, upsert: false }));
+    return ruta;
+  },
+  async urlTicket(ruta) { return ok(await (await cliente()).storage.from("tickets").createSignedUrl(ruta, 600)).signedUrl; },
   // Sube la imagen del QR de cobro al bucket público "pagos" y devuelve su URL pública
   async subirQR(archivo) {
     const c = await cliente();
@@ -196,7 +219,21 @@ function sembrar() {
       created_at: new Date(new Date(fecha).getTime() - 12 * 864e5).toISOString(), updated_at: new Date().toISOString(), items,
     });
   }
-  return { config: { ...CONFIG_INICIAL }, productos, clientes, reservas, sesion: null };
+  const personal = ["Kike Martí", "Luis Rojas", "Ana Vargas", "Pedro Suárez"].map((nombre, i) => ({
+    id: uid(), nombre, telefono: "5917" + String(2200000 + i * 51113).slice(0, 7), activo: true, created_at: new Date().toISOString(),
+  }));
+  // gastos de ejemplo en eventos ya realizados (ingredientes ~32%, gas, transporte y personal)
+  for (const r of reservas) {
+    r.gastos = [];
+    r.equipo = []; r.compra_estado = r.estado === "pendiente" ? "pendiente" : "comprada"; r.orden_compra_enviada_at = null;
+    if (r.estado === "realizada" && rnd() < 0.85) {
+      const t = Number(r.total);
+      const g = (categoria, k) => r.gastos.push({ id: uid(), reserva_id: r.id, categoria, monto: Math.round(t * k), fecha: r.fecha, descripcion: "", ticket_path: null, created_at: r.created_at });
+      g("ingredientes", 0.26 + rnd() * 0.12); g("gas", 0.02 + rnd() * 0.02); g("transporte", 0.02 + rnd() * 0.03); g("personal", 0.08 + rnd() * 0.06);
+      r.equipo = personal.slice(0, 2 + Math.floor(rnd() * 3)).map((p) => p.id);
+    }
+  }
+  return { config: { ...CONFIG_INICIAL }, productos, clientes, reservas, personal, sesion: null };
 }
 
 function cargar() {
@@ -214,7 +251,7 @@ const db = () => (memoria ??= cargar());
 const pausa = () => new Promise((r) => setTimeout(r, 120));
 const conCliente = (r) => {
   const c = db().clientes.find((x) => x.id === r.cliente_id) || {};
-  return { ...r, clientes: c, reserva_items: r.items };
+  return { equipo: [], compra_estado: "pendiente", ...r, gastos: [...(r.gastos || [])], clientes: c, reserva_items: r.items };
 };
 
 const demo = {
@@ -290,6 +327,29 @@ const demo = {
   async configCompleta() { return { ...CONFIG_INICIAL, ...db().config }; },
   async guardarConfig(patch) { const d = db(); Object.assign(d.config, patch); guardar(d); return d.config; },
   async urlCalendario() { return "https://TU-PROYECTO.supabase.co/functions/v1/calendario?token=…"; },
+  async personal() { return [...(db().personal ||= [])]; },
+  async guardarPersona(p) {
+    const d = db(); d.personal ||= [];
+    if (p.id) Object.assign(d.personal.find((x) => x.id === p.id), p);
+    else d.personal.push({ activo: true, ...p, id: uid(), created_at: new Date().toISOString() });
+    guardar(d); return p;
+  },
+  async agregarGasto(g) {
+    const d = db(); const r = d.reservas.find((x) => x.id === g.reserva_id);
+    const nuevo = { id: uid(), fecha: hoyISO(), descripcion: "", ticket_path: null, ...g, created_at: new Date().toISOString() };
+    (r.gastos ||= []).push(nuevo); guardar(d); return nuevo;
+  },
+  async borrarGasto(g) { const d = db(); const r = d.reservas.find((x) => x.id === g.reserva_id); r.gastos = (r.gastos || []).filter((x) => x.id !== g.id); guardar(d); },
+  // en demo el ticket se guarda en este navegador (imagen reducida)
+  async subirTicket(archivo) {
+    if (!archivo.type.startsWith("image/")) throw new Error("En modo demo solo se pueden adjuntar imágenes");
+    const img = await createImageBitmap(archivo);
+    const k = Math.min(1, 900 / Math.max(img.width, img.height));
+    const cv = Object.assign(document.createElement("canvas"), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL("image/jpeg", 0.8);
+  },
+  async urlTicket(ruta) { return ruta; },
   // En demo el QR se guarda en este navegador, reducido a 600 px
   async subirQR(archivo) {
     const img = await createImageBitmap(archivo);

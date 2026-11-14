@@ -221,3 +221,54 @@ ol.pasos-ios li { margin-bottom: 6px; }
 .cajon .anticipo .enlace-qr { display: inline-block; margin-top: 10px; }
 .res .m .etiqueta { min-height: 24px; font-size: 11px; padding: 0 10px; }
 @media (max-width: 700px) { .cobro-grid { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- equipo, compra y gastos */
+.equipo-lista { display: grid; gap: 8px; margin-bottom: 14px; }
+.persona { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--amarillo-claro); border-radius: 16px; }
+.persona b { display: block; }
+.persona.inactiva { opacity: .6; }
+.fila-persona { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+@media (max-width: 600px) { .fila-persona { grid-template-columns: 1fr; } }
+
+.equipo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip-check { position: relative; cursor: pointer; }
+.chip-check input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.chip-check span {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  background: var(--amarillo-claro); border: 2px solid transparent; font-weight: 700; font-size: 13px;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.chip-check span::before { content: ""; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--gris); transition: background-color 150ms ease, box-shadow 150ms ease; }
+.chip-check input:checked + span { background: var(--amarillo); }
+.chip-check input:checked + span::before { background: var(--tinta); box-shadow: inset 0 0 0 3px var(--amarillo), 0 0 0 1.5px var(--tinta); }
+.chip-check input:focus-visible + span { outline: 2.5px solid var(--terracota); outline-offset: 2px; }
+
+.compra-estado { margin: 4px 0 10px; }
+.estados [data-compra=pendiente]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--terracota); }
+.estados [data-compra=pedida]::before { background: var(--amarillo); }
+.estados [data-compra=comprada]::before { background: var(--oliva-osc); }
+.estados button.activo[data-compra=pendiente] { background: var(--papel); border-color: var(--terracota); color: var(--terracota-osc); }
+.estados button.activo[data-compra=pedida] { background: var(--amarillo); border-color: var(--amarillo); color: var(--tinta); }
+.estados button.activo[data-compra=comprada] { background: var(--oliva-osc); border-color: var(--oliva-osc); color: #fff; }
+.estados button.activo[data-compra]::before { background: currentColor; box-shadow: none; }
+.envios { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+#copiar-orden { width: 100%; }
+.bloque.resaltar { box-shadow: inset 0 0 0 2px var(--amarillo), var(--sombra); }
+
+.lista-gastos { display: grid; gap: 6px; margin-bottom: 12px; }
+.gasto { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--gris-suave); font-size: 14px; }
+.gasto .det { color: var(--gris); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gasto b { font-variant-numeric: tabular-nums; }
+.mini { border: 0; background: var(--amarillo-claro); border-radius: 999px; min-height: 32px; min-width: 32px; padding: 0 10px; font-size: 12px; font-weight: 700; cursor: pointer; transition: transform 160ms var(--ease-out), background-color 150ms ease; }
+.mini:active { transform: scale(0.94); }
+.mini.borrar { font-size: 16px; padding: 0; color: var(--terracota-osc); }
+@media (hover: hover) and (pointer: fine) { .mini:hover { background: var(--amarillo-suave); } }
+.resultado { margin-bottom: 14px; }
+.resultado .margen { font-family: var(--f-titulo); font-size: 16px; padding-top: 6px; }
+.resultado .margen b { color: var(--oliva-osc); }
+.form-gasto .ticket-subir { position: relative; width: 100%; margin-bottom: 10px; cursor: pointer; }
+.form-gasto .ticket-subir input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.form-gasto .ticket-subir:focus-within { outline: 2.5px solid var(--terracota); outline-offset: 2px; }
+.form-gasto > .btn:not(.sec) { width: 100%; }
+.fila-click { cursor: pointer; }
+.grid2 > * { min-width: 0; }
