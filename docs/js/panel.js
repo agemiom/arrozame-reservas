@@ -574,17 +574,7 @@ function nuevaReserva() {
     <h2>Nueva reserva</h2>
     <p class="muted small" style="margin-top:0">Para pedidos que entran por WhatsApp, Instagram o en persona. Queda todo en el mismo registro.</p>
     <form id="fn">
-      <div class="bloque anticipo"><h4>Anticipo</h4>
-      <div class="linea"><span>Anticipo del ${pctAnticipo()}%</span><b>${bs(montoAnticipo(r))}</b></div>
-      <div class="linea"><span>QR enviado</span><span id="qr-enviado">${r.qr_enviado_at ? fechaHora(r.qr_enviado_at) : "Todavía no"}</span></div>
-      <div class="linea"><span>Anticipo pagado</span><span>${Number(r.anticipo) > 0 ? `${bs(r.anticipo)}${r.anticipo_pagado_at ? " · " + fechaHora(r.anticipo_pagado_at) : ""}` : "Pendiente"}</span></div>
-      ${st.cfg?.qr_url
-        ? `<a class="btn wa chico" id="enviar-qr" target="_blank" rel="noopener" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(mensajeAnticipo(r, nombre1))}">WhatsApp · Enviar QR del anticipo</a>
-           <a class="small enlace-qr" href="${escapar(urlPaginaQR(r))}" target="_blank" rel="noopener">Ver lo que recibe el cliente ↗</a>`
-        : `<div class="aviso info" style="margin-bottom:0">Todavía no hay QR de cobro. <a href="#ajustes" id="ir-ajustes-qr">Subilo en Ajustes</a> para poder enviarlo desde acá.</div>`}
-    </div>
-
-    <div class="bloque"><h4>Cliente</h4>
+      <div class="bloque"><h4>Cliente</h4>
         <div class="fila"><label class="campo"><span>Nombre *</span><input type="text" name="nombre" required></label>
           <label class="campo"><span>WhatsApp *</span><input type="tel" name="telefono" required></label></div>
         <label class="campo" style="margin:0"><span>¿Por dónde llegó?</span><select name="origen"><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="manual">En persona / teléfono</option><option value="otro">Otro</option></select></label>
