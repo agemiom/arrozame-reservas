@@ -1,0 +1,6 @@
+# Configuración de Supabase CLI para Arrózame
+project_id = "arrozame-reservas"
+
+[functions.calendario]
+# El feed de calendario se protege con su propio token secreto (?token=...)
+verify_jwt = false
