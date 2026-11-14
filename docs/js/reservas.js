@@ -233,7 +233,16 @@ function mostrarExito(r, c, f) {
     `DTSTART:${t(r.fecha, r.hora)}`, `DTEND:${t(r.fecha, r.hora, 180)}`, `SUMMARY:Paella Experience · Arrózame (${r.codigo})`,
     `DESCRIPTION:${detalle.replace(/\n/g, "\\n")}\\nTotal: ${bs(r.total)}`, `LOCATION:${(f.direccion.value || "").replace(/[,;]/g, " ")}`,
     "END:VEVENT", "END:VCALENDAR"].join("\r\n");
-  const icsUrl = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  // iPhone/iPad: un data: URI abre directo "Agregar al Calendario"; en compu se descarga el .ics
+  const esIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const icsHref = esIOS ? "data:text/calendar;charset=utf-8," + encodeURIComponent(ics)
+                        : URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  const gcal = "https://calendar.google.com/calendar/render?action=TEMPLATE"
+    + "&text=" + encodeURIComponent(`Paella Experience · Arrózame (${r.codigo})`)
+    + "&dates=" + t(r.fecha, r.hora) + "/" + t(r.fecha, r.hora, 180)
+    + "&ctz=America/La_Paz"
+    + "&details=" + encodeURIComponent(`${detalle}\nTotal: ${bs(r.total)}`)
+    + "&location=" + encodeURIComponent(f.direccion.value || "");
 
   $("#pasos").classList.add("oculto");
   $$("[data-vista]").forEach((v) => v.classList.add("oculto"));
@@ -249,7 +258,11 @@ function mostrarExito(r, c, f) {
     <p class="small muted" style="max-width:420px;margin:10px auto 0">Queda <b>pendiente</b> hasta que te confirmemos por WhatsApp con los datos de pago del anticipo.</p>
     <div class="botones">
       <a class="btn wa" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a>
-      <a class="btn sec" href="${icsUrl}" download="arrozame-${r.codigo}.ics">Agregar a mi calendario</a>
+    </div>
+    <p class="small muted" style="margin:18px 0 8px">Agregalo a tu calendario</p>
+    <div class="botones" style="margin-top:0">
+      <a class="btn sec chico" href="${icsHref}" ${esIOS ? "" : `download="arrozame-${r.codigo}.ics"`}>📅 Apple / iPhone</a>
+      <a class="btn sec chico" href="${gcal}" target="_blank" rel="noopener">📅 Google Calendar</a>
     </div>`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
