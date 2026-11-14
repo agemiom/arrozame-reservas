@@ -1,10 +1,10 @@
 // =====================================================================
 // Arrózame · Configuración de conexión
-// Completá estos dos valores con los de tu proyecto de Supabase
+// Completa estos dos valores con los de tu proyecto de Supabase
 // (Supabase → Project Settings → API). La "publishable / anon key" es
 // pública por diseño: la seguridad la ponen las reglas (RLS) de la base.
 //
-// Si los dejás vacíos, el sitio funciona en MODO DEMO con datos de ejemplo
+// Si los dejas vacíos, el sitio funciona en MODO DEMO con datos de ejemplo
 // guardados solo en este navegador.
 // =====================================================================
 export const SUPABASE_URL = "https://ncwkdnqaurqtduhwweua.supabase.co";

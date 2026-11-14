@@ -38,16 +38,16 @@
   <img class="logo" src="img/logo_h_dark.png" alt="arrózame · Paella Experience" width="170">
   <main class="tarjeta pago">
     <h1>Anticipo de tu reserva</h1>
-    <p class="bajada">Escaneá el QR desde la app de tu banco para asegurar la fecha.</p>
+    <p class="bajada">Escanea el QR desde la app de tu banco para asegurar la fecha.</p>
     <div class="datos franja">
       <div><span>Reserva</span><b id="codigo">—</b></div>
       <div class="monto"><span>Monto a pagar</span><b id="monto">—</b></div>
     </div>
     <div id="qr-zona"><p class="muted">Cargando QR…</p></div>
     <ol class="pasos-pago">
-      <li>Abrí la app de tu banco y elegí <b>pagar con QR</b>.</li>
-      <li>Escaneá este código o subí la imagen guardada.</li>
-      <li>Pagá el monto exacto y mandanos el comprobante por WhatsApp.</li>
+      <li>Abre la app de tu banco y elige <b>pagar con QR</b>.</li>
+      <li>Escanea este código o sube la imagen guardada.</li>
+      <li>Paga el monto exacto y envíanos el comprobante por WhatsApp.</li>
     </ol>
     <div class="acciones">
       <button class="btn sec oculto" id="guardar" type="button">Guardar imagen del QR</button>
@@ -83,7 +83,7 @@
         } catch { window.open(cfg.qr_url, "_blank", "noopener"); }
       };
     } else {
-      zona.innerHTML = `<div class="aviso info sin-qr">Todavía no tenemos el QR cargado. Escribinos por WhatsApp y te lo pasamos.</div>`;
+      zona.innerHTML = `<div class="aviso info sin-qr">Todavía no tenemos el QR cargado. Escríbenos por WhatsApp y te lo pasamos.</div>`;
     }
   </script>
 </body>

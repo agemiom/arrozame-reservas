@@ -115,8 +115,12 @@ async function pintarCalendario() {
     const pasado = f < minISO;
     const lleno = info.lleno || info.bloqueado;
     const libres = Math.max(0, (estado.cfg.eventos_max_por_dia || 2) - (info.eventos || 0));
-    const nota = pasado ? "" : lleno ? "completo" : libres === 1 ? "último" : "";
-    celdas += `<button type="button" class="dia ${f === estado.fecha ? "sel" : ""} ${lleno ? "lleno" : ""}" data-fecha="${f}" ${pasado || lleno ? "disabled" : ""}>${d}${nota ? `<small>${nota}</small>` : ""}</button>`;
+    // el pedido no entra ese día: un evento grande necesita el día libre; uno normal, que alcancen las raciones
+    const grande = excedeCapacidad();
+    const sinCupo = !pasado && !lleno && (grande ? (info.eventos || 0) > 0 : (info.raciones || 0) + calculo().raciones > maxRacionesDia());
+    const nota = pasado ? "" : lleno ? "agenda llena" : sinCupo ? "sin cupo" : libres === 1 ? "1 cupo libre" : "";
+    const titulo = pasado ? "" : lleno ? "Agenda llena" : sinCupo ? (grande ? "Un evento grande necesita el día libre" : "No entra tu pedido ese día") : libres === 1 ? "Queda 1 cupo libre" : "Disponible";
+    celdas += `<button type="button" class="dia ${f === estado.fecha ? "sel" : ""} ${lleno || sinCupo ? "lleno" : ""} ${libres === 1 && !lleno && !sinCupo ? "ultimo" : ""}" data-fecha="${f}" ${pasado || lleno || sinCupo ? "disabled" : ""} ${titulo ? `title="${titulo}" aria-label="${d}, ${titulo}"` : ""}>${d}${nota ? `<small>${nota}</small>` : ""}</button>`;
   }
   $("#cal").innerHTML = `
     <div class="cal-cab">
@@ -125,7 +129,8 @@ async function pintarCalendario() {
       <button type="button" data-mes="1" aria-label="Mes siguiente">›</button>
     </div>
     <div class="cal-grid">${celdas}</div>
-    <p class="small muted" style="margin-top:10px">Reservas web con al menos ${estado.cfg.anticipacion_min_horas} h de anticipación. ¿Es para antes? Escribinos por WhatsApp.</p>`;
+    <p class="cal-leyenda"><span class="punto"></span>1 cupo libre <span class="gris"></span>Agenda llena</p>
+    <p class="small muted cal-nota">Reservas web con al menos ${estado.cfg.anticipacion_min_horas} h de anticipación. ¿Es para antes? <a class="enlace" href="${waConPedido("Quiero reservar con menos de " + estado.cfg.anticipacion_min_horas + " h de anticipación:")}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a></p>`;
 }
 $("#cal").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b || b.disabled) return;
@@ -154,6 +159,18 @@ $("#horas").addEventListener("click", (e) => {
   const b = e.target.closest("[data-hora]"); if (!b || b.disabled) return;
   estado.hora = b.dataset.hora; pintarHoras(); actualizar();
 });
+
+// ---------------------------------------------------------------- capacidad y WhatsApp
+const maxRacionesDia = () => Number(estado.cfg?.raciones_max_por_dia) || Infinity;
+// evento grande: supera las raciones de un día normal; se reserva igual, ocupa el día completo y se confirma por WhatsApp
+const excedeCapacidad = () => calculo().raciones > maxRacionesDia();
+function waConPedido(motivo) {
+  const c = calculo();
+  const lineas = c.lineas.map((l) => `• ${l.n} × ${l.p.nombre}`).join("\n");
+  const cuando = estado.fecha ? `\nFecha: ${fechaLarga(estado.fecha)}${estado.hora ? " · " + estado.hora : ""}` : "";
+  const texto = `¡Hola Arrózame! ${motivo}${lineas ? "\n\n" + lineas + `\nTotal: ${c.raciones} raciones` : ""}${cuando}`;
+  return `https://wa.me/${estado.cfg?.whatsapp || "59171293297"}?text=${encodeURIComponent(texto)}`;
+}
 
 // ---------------------------------------------------------------- resumen y navegación
 function puedeSeguir() {
@@ -187,9 +204,15 @@ function actualizar() {
   if (c.showIncluido) { chk.checked = true; chk.disabled = true; txtShow.textContent = "¡Incluido en tu pedido por superar las " + estado.cfg.showcooking_incluido_desde + " raciones!"; }
   else { chk.disabled = false; txtShow.textContent = `Cocinamos la paella frente a tus invitados (+${bs(estado.cfg.costo_showcooking)}).`; }
 
-  const sigTxt = estado.paso === 3 ? (estado.enviando ? "Enviando…" : "Confirmar reserva") : "Continuar →";
+  const aviso = $("#aviso-grande");
+  if (estado.paso === 1 && excedeCapacidad()) {
+    aviso.innerHTML = `<b>Es un evento grande: ${c.raciones} raciones.</b> Puedes reservarlo igual por aquí. Un evento así ocupa el día completo, así que verás solo los días libres, y te lo confirmaremos por WhatsApp. <a class="enlace" href="${waConPedido("Quiero consultar por un evento grande:")}" target="_blank" rel="noopener">¿Prefieres hablarlo antes? Escríbenos</a>`;
+    aviso.classList.remove("oculto");
+  } else aviso.classList.add("oculto");
+  const sigTxt = estado.paso === 3 ? (estado.enviando ? "Enviando…" : excedeCapacidad() ? "Enviar solicitud" : "Confirmar reserva") : "Continuar →";
   for (const b of [$("#btn-seguir"), $("#bm-seguir")]) { b.disabled = !puedeSeguir() || estado.enviando; b.textContent = sigTxt; }
-  for (const b of [$("#btn-atras"), $("#bm-atras")]) b.style.visibility = estado.paso > 1 ? "visible" : "hidden";
+  $("#btn-atras").style.visibility = estado.paso > 1 ? "visible" : "hidden";
+  $("#bm-atras").style.display = estado.paso > 1 ? "" : "none"; // en el celular no ocupa lugar en el paso 1
   $$("#pasos button").forEach((b) => {
     const n = Number(b.dataset.paso);
     b.classList.toggle("activo", n === estado.paso);
@@ -234,7 +257,7 @@ for (const n of ["direccion", "zona"]) $(`#form-datos [name=${n}]`).addEventList
 $("#btn-mi-ubicacion").onclick = () => {
   const msg = $("#ubicacion-msg"); const b = $("#btn-mi-ubicacion");
   const avisar = (t) => { msg.textContent = t; msg.classList.remove("oculto"); };
-  if (!navigator.geolocation) return avisar("Tu navegador no permite compartir la ubicación. Escribí la dirección o buscala en Google Maps.");
+  if (!navigator.geolocation) return avisar("Tu navegador no permite compartir la ubicación. Escribe la dirección o búscala en Google Maps.");
   b.disabled = true; b.textContent = "Buscando…";
   navigator.geolocation.getCurrentPosition((pos) => {
     const { latitude: la, longitude: lo } = pos.coords;
@@ -242,10 +265,10 @@ $("#btn-mi-ubicacion").onclick = () => {
     f.direccion.value = `${la.toFixed(6)}, ${lo.toFixed(6)}`;
     f.direccion.dispatchEvent(new Event("input", { bubbles: true }));
     pintarMapa();
-    avisar("Listo: usamos tu ubicación actual. Revisá el mapa y sumá referencias (condominio, casa) en la zona o en las notas.");
+    avisar("Listo: usamos tu ubicación actual. Revisa el mapa y añade referencias (condominio, casa) en la zona o en las notas.");
     b.disabled = false; b.textContent = "Usar mi ubicación";
   }, () => {
-    avisar("No pudimos obtener tu ubicación. Escribí la dirección o buscala en Google Maps.");
+    avisar("No pudimos obtener tu ubicación. Escribe la dirección o búscala en Google Maps.");
     b.disabled = false; b.textContent = "Usar mi ubicación";
   }, { enableHighAccuracy: true, timeout: 12000 });
 };
@@ -265,7 +288,7 @@ async function enviar() {
     });
     mostrarExito(r, c, f);
   } catch (err) {
-    $("#error-envio").textContent = err.message || "No pudimos registrar la reserva. Probá de nuevo o escribinos por WhatsApp.";
+    $("#error-envio").innerHTML = `${escapar(err.message || "No pudimos registrar la reserva. Inténtalo de nuevo o escríbenos por WhatsApp.")} <a class="btn wa chico" href="${waConPedido("Quise reservar en la web y me salió un error:")}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a>`;
     $("#error-envio").classList.remove("oculto");
     // si el día se llenó mientras tanto, refrescamos disponibilidad
     delete estado.disp[estado.mes];
@@ -274,7 +297,8 @@ async function enviar() {
 
 function mostrarExito(r, c, f) {
   const detalle = c.lineas.map((l) => `• ${l.n} × ${l.p.nombre}`).join("\n");
-  const msg = `¡Hola Arrózame! 🥘 Acabo de reservar en la web.\n\nCódigo: *${r.codigo}*\n📅 ${fechaLarga(r.fecha)} · ${r.hora}\n${detalle}\n${c.quiereShow ? "Con showcooking\n" : ""}Total: ${bs(r.total)}\n\nA nombre de ${f.nombre.value}`;
+  const grande = !!r.evento_grande;
+  const msg = `¡Hola Arrózame! 🥘 ${grande ? "Acabo de enviar una solicitud de evento grande en la web." : "Acabo de reservar en la web."}\n\nCódigo: *${r.codigo}*\n📅 ${fechaLarga(r.fecha)} · ${r.hora}\n${detalle}\n${c.quiereShow ? "Con showcooking\n" : ""}Total: ${bs(r.total)}\n\nA nombre de ${f.nombre.value}`;
   const wa = `https://wa.me/${estado.cfg.whatsapp}?text=${encodeURIComponent(msg)}`;
 
   // .ics para que el cliente lo agregue a su propio calendario
@@ -302,7 +326,7 @@ function mostrarExito(r, c, f) {
   $("#exito").innerHTML = `
     <div class="exito-foto"><img src="img/chef-paellera-900.webp" alt="Chef de Arrózame sonriendo junto a la paellera"></div>
     <svg class="check" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30"/><path d="M19 33.5l8.5 8.5L45 24"/></svg>
-    <h2>¡Reserva recibida!</h2>
+    <h2>${grande ? "¡Solicitud recibida!" : "¡Reserva recibida!"}</h2>
     <div class="ticket">
       <span class="ticket-lbl">Tu código de reserva</span>
       <div class="codigo">${escapar(r.codigo)}</div>
@@ -310,11 +334,13 @@ function mostrarExito(r, c, f) {
       <div class="ticket-fila"><span>${fechaLarga(r.fecha)}</span><b>${r.hora}</b></div>
       <div class="ticket-fila"><span>${r.raciones} raciones</span><b>${bs(r.total)}</b></div>
     </div>
-    <p class="exito-nota">Queda <b>pendiente</b> hasta que te confirmemos por WhatsApp con los datos de pago del anticipo.</p>
+    <p class="exito-nota">${grande
+      ? "Por ser un <b>evento grande</b>, reservamos el día para ti y lo revisamos con el equipo. Te escribimos por WhatsApp para confirmar los detalles y el anticipo."
+      : "Queda <b>pendiente</b> hasta que te confirmemos por WhatsApp con los datos de pago del anticipo."}</p>
     <div class="botones">
       <a class="btn wa" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a>
     </div>
-    <p class="exito-cal">Agregalo a tu calendario</p>
+    <p class="exito-cal">Agrégalo a tu calendario</p>
     <div class="botones cal-botones">
       <a class="btn sec chico" href="${icsHref}" ${esIOS ? "" : `download="arrozame-${r.codigo}.ics"`}>Apple / iPhone</a>
       <a class="btn sec chico" href="${gcal}" target="_blank" rel="noopener">Google Calendar</a>
@@ -329,10 +355,10 @@ function mostrarExito(r, c, f) {
   try {
     [estado.cfg, estado.productos] = await Promise.all([datos.config(), datos.productos()]);
   } catch (e) {
-    $("#carta").innerHTML = `<div class="aviso error">No pudimos cargar la carta. Escribinos por WhatsApp al 71293297.</div>`;
+    $("#carta").innerHTML = `<div class="aviso error">No pudimos cargar la carta. Escríbenos por WhatsApp al 71293297.</div>`;
     return;
   }
-  $("#aviso-minimo").textContent = `Mínimo ${estado.cfg.pedido_minimo} raciones por paella · podés combinar varias · showcooking incluido desde ${estado.cfg.showcooking_incluido_desde} raciones.`;
+  $("#aviso-minimo").textContent = `Mínimo ${estado.cfg.pedido_minimo} raciones por paella · puedes combinar varias · showcooking incluido desde ${estado.cfg.showcooking_incluido_desde} raciones.`;
   $("#pie-contacto").innerHTML = `Santa Cruz de la Sierra · <a href="https://wa.me/${estado.cfg.whatsapp}">WhatsApp</a> · <a href="https://instagram.com/${estado.cfg.instagram}">@${estado.cfg.instagram}</a> · ${escapar(estado.cfg.email)}`;
   pintarCarta();
   actualizar();

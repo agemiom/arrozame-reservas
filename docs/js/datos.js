@@ -161,7 +161,7 @@ const CONFIG_INICIAL = {
   horarios: ["11:00", "12:00", "13:00", "18:00", "19:00", "20:00", "21:00"], dias_bloqueados: [],
   calendario_token: "demo",
   qr_url: null, anticipo_porcentaje: 50,
-  mensaje_anticipo: "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, mandanos el comprobante por acá. ¡Gracias!",
+  mensaje_anticipo: "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, envíanos el comprobante por aquí. ¡Gracias!",
 };
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 const codigo = () => Math.random().toString(16).slice(2, 8).toUpperCase();
@@ -279,7 +279,7 @@ const demo = {
       if (!pr) throw new Error("Una de las paellas ya no está disponible");
       items.push({ id: uid(), producto_id: pr.id, nombre: pr.nombre, raciones: it.raciones, precio_unit: pr.precio_bs, subtotal: it.raciones * pr.precio_bs });
     }
-    if (!items.length) throw new Error("Elegí al menos una paella");
+    if (!items.length) throw new Error("Elige al menos una paella");
     const rac = items.reduce((a, i) => a + i.raciones, 0);
     if (rac < c.pedido_minimo) throw new Error(`El pedido mínimo es de ${c.pedido_minimo} raciones`);
     const cuando = new Date(`${p.fecha}T${p.hora}`);
@@ -287,8 +287,12 @@ const demo = {
       throw new Error(`Las reservas web necesitan al menos ${c.anticipacion_min_horas} horas de anticipación`);
     const [disp] = await this.disponibilidad(p.fecha, p.fecha);
     if (disp.bloqueado) throw new Error("Ese día no está disponible");
-    if (disp.eventos >= c.eventos_max_por_dia || disp.raciones + rac > c.raciones_max_por_dia)
-      throw new Error("Ese día ya está completo. Probá otra fecha o escribinos por WhatsApp");
+    let grande = false;
+    if (disp.eventos >= c.eventos_max_por_dia) throw new Error("Ese día ya tiene la agenda llena. Prueba otra fecha o escríbenos por WhatsApp");
+    if (rac > c.raciones_max_por_dia) {
+      if (disp.eventos > 0) throw new Error("Para un evento grande reservamos el día completo y ese día ya tenemos otro evento. Prueba otra fecha o escríbenos por WhatsApp");
+      grande = true;
+    } else if (disp.raciones + rac > c.raciones_max_por_dia) throw new Error("Ese día ya no nos alcanza para las raciones de tu pedido. Prueba otra fecha o escríbenos por WhatsApp");
     if ((await this.horasOcupadas(p.fecha)).includes(p.hora)) throw new Error("Ese horario ya está tomado");
     let show = !!p.showcooking, costoShow = 0;
     if (rac >= c.showcooking_incluido_desde) show = true; else if (show) costoShow = c.costo_showcooking;
@@ -300,11 +304,11 @@ const demo = {
       id: uid(), codigo: codigo(), cliente_id: cli.id, fecha: p.fecha, hora: p.hora + ":00", duracion_min: c.duracion_evento_min,
       tipo_evento: p.tipo_evento || "", direccion: p.direccion || "", zona: p.zona || "", invitados: p.invitados || null,
       raciones_total: rac, showcooking: show, costo_showcooking: costoShow, subtotal, descuento: 0, total: subtotal + costoShow,
-      anticipo: 0, estado: "pendiente", origen: p.origen || "web", notas_cliente: p.notas || "", notas_internas: "",
+      anticipo: 0, estado: "pendiente", origen: p.origen || "web", notas_cliente: p.notas || "", notas_internas: "", evento_grande: grande,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(), items,
     };
     d.reservas.push(r); guardar(d);
-    return { codigo: r.codigo, total: r.total, raciones: rac, showcooking: show, costo_showcooking: costoShow, fecha: r.fecha, hora: p.hora };
+    return { codigo: r.codigo, total: r.total, raciones: rac, showcooking: show, costo_showcooking: costoShow, fecha: r.fecha, hora: p.hora, evento_grande: grande };
   },
   async login(email) { const d = db(); d.sesion = { email: email || "fer@arrozame.bo" }; guardar(d); return d.sesion; },
   async logout() { const d = db(); d.sesion = null; guardar(d); },

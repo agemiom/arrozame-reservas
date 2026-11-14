@@ -30,7 +30,7 @@ const urlPaginaQR = (r) => {
   u.searchParams.set("c", r.codigo); u.searchParams.set("m", montoAnticipo(r));
   return u.href;
 };
-const MENSAJE_ANTICIPO_BASE = "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, mandanos el comprobante por acá. ¡Gracias!";
+const MENSAJE_ANTICIPO_BASE = "¡Hola {nombre}! Para asegurar tu reserva *{codigo}* del {fecha} te enviamos el QR para el anticipo del {porcentaje}% ({monto}):\n{enlace}\n\nCuando pagues, envíanos el comprobante por aquí. ¡Gracias!";
 const mensajeAnticipo = (r, nombre1) => (st.cfg?.mensaje_anticipo || MENSAJE_ANTICIPO_BASE)
   .replaceAll("{nombre}", nombre1).replaceAll("{codigo}", r.codigo).replaceAll("{fecha}", fechaLarga(r.fecha))
   .replaceAll("{porcentaje}", pctAnticipo()).replaceAll("{monto}", bs(montoAnticipo(r))).replaceAll("{enlace}", urlPaginaQR(r));
@@ -45,7 +45,7 @@ const ordenCompra = (r) => {
   const lugar = [r.direccion, r.zona].filter(Boolean).join(", ");
   const equipo = equipoDe(r).map((p) => p.nombre).join(", ");
   return [
-    "*Orden de compra · Arrózame*",
+    r.evento_grande ? "*Orden de compra · Arrózame · EVENTO GRANDE*" : "*Orden de compra · Arrózame*",
     `Reserva ${r.codigo} · ${fechaLarga(r.fecha)} · ${hhmm(r.hora)}`,
     [r.tipo_evento, r.invitados ? `${r.invitados} invitados` : ""].filter(Boolean).join(" · "),
     lugar ? `Lugar: ${lugar}` : "",
@@ -57,7 +57,7 @@ const ordenCompra = (r) => {
     equipo ? `Equipo: ${equipo}` : "",
     r.notas_cliente ? `Notas del cliente: ${r.notas_cliente}` : "",
     "",
-    "Cuando tengas la compra, mandame la foto del ticket. ¡Gracias!",
+    "Cuando tengas la compra, envíame la foto del ticket. ¡Gracias!",
   ].filter((l, i, a) => l !== "" || (a[i - 1] !== "" && i > 0)).join("\n");
 };
 const etiquetaCompra = (r) => {
@@ -168,7 +168,7 @@ function filaReserva(r) {
   const platos = (r.reserva_items || []).map((i) => `${i.raciones} ${i.nombre.replace(/^Paella (de )?/, "")}`).join(" · ");
   return `<div class="res e-${r.estado}" data-id="${r.id}">
     <div class="h">${hhmm(r.hora)}</div>
-    <div><div class="t">${escapar(r.clientes?.nombre || "—")} <span class="small muted">· ${escapar(r.tipo_evento || "")}</span></div>
+    <div><div class="t">${escapar(r.clientes?.nombre || "—")} <span class="small muted">· ${escapar(r.tipo_evento || "")}</span>${r.evento_grande ? ` <span class="etiqueta grande">Evento grande</span>` : ""}</div>
       <div class="d">${r.raciones_total} rac · ${escapar(platos)}${r.showcooking ? ` <span class="etiqueta show">Showcooking</span>` : ""}</div>
       <div class="d">${escapar([r.zona, r.direccion].filter(Boolean).join(" · "))}</div></div>
     <div class="m">${chip(r.estado)}${etiquetaAnticipo(r)}${etiquetaCompra(r)}<b>${bs(r.total)}</b>${saldo(r) && r.estado !== "cancelada" ? `<span class="small muted">saldo ${bs(saldo(r))}</span>` : ""}</div>
@@ -199,7 +199,7 @@ function vistaCalendario() {
   $("#vista").innerHTML = `
     <div class="cab"><h1>${(([a, ...r]) => a.toUpperCase() + r.join(""))(primero.toLocaleDateString("es-BO", { month: "long", year: "numeric" }))}</h1>
       <div style="display:flex;gap:8px"><button class="btn sec chico" data-m="-1">‹</button><button class="btn sec chico" data-m="0">Hoy</button><button class="btn sec chico" data-m="1">›</button><button class="btn chico" id="nueva">+ Nueva</button></div></div>
-    <p class="muted small" style="margin-top:-8px">${delMes.length} eventos · ${delMes.reduce((s, r) => s + r.raciones_total, 0)} raciones · ${bs(delMes.reduce((s, r) => s + Number(r.total), 0))} · Tocá el número de un día para bloquearlo (sin reservas web).</p>
+    <p class="muted small" style="margin-top:-8px">${delMes.length} eventos · ${delMes.reduce((s, r) => s + r.raciones_total, 0)} raciones · ${bs(delMes.reduce((s, r) => s + Number(r.total), 0))} · Toca el número de un día para bloquearlo (sin reservas web).</p>
     <div class="pcal">${celdas}</div>
     <div class="filtros small" style="margin-top:12px">${ESTADOS.map((e) => `<span class="est est-${e}">${ETQ[e]}</span>`).join("")}</div>`;
   $("#nueva").onclick = nuevaReserva;
@@ -355,7 +355,7 @@ function vistaClientes(q = "") {
 function vistaCarta() {
   $("#vista").innerHTML = `
     <div class="cab"><h1>Carta</h1><button class="btn chico" id="nuevo-plato">+ Agregar paella</button></div>
-    <p class="muted small" style="margin-top:-8px">Los cambios de precio aplican a reservas nuevas. Las reservas ya hechas conservan su precio. Desactivá una paella para ocultarla de la página pública.</p>
+    <p class="muted small" style="margin-top:-8px">Los cambios de precio aplican a reservas nuevas. Las reservas ya hechas conservan su precio. Desactiva una paella para ocultarla de la página pública.</p>
     <div class="tarjeta scroll-x"><table class="tabla"><thead><tr><th>Paella</th><th>Categoría</th><th class="num">Precio/ración</th><th>Visible</th><th></th></tr></thead>
     <tbody>${st.productos.map((p) => `<tr data-id="${p.id}">
       <td><b>${escapar(p.nombre)}</b><div class="small muted">${escapar(p.ingredientes || "")}</div></td>
@@ -403,27 +403,27 @@ async function vistaAjustes() {
       <div class="tarjeta">
         <h2>Calendario en el iPhone</h2>
         <p class="bajada">Las reservas aparecen solas en el Calendario del iPhone, con aviso 24 h y 3 h antes.</p>
-        ${modoDemo ? `<div class="aviso info">En modo demo no hay enlace real. Cuando conectes Supabase acá aparece tu enlace privado.</div>` : ""}
+        ${modoDemo ? `<div class="aviso info">En modo demo no hay enlace real. Cuando conectes Supabase, aquí aparecerá tu enlace privado.</div>` : ""}
         <code class="url" id="url-cal">${escapar(url)}</code>
         <button class="btn sec chico" id="copiar-cal">Copiar enlace</button>
         <ol class="pasos-ios small" style="margin-top:14px;padding-left:18px">
-          <li>En el iPhone abrí <b>Ajustes → Calendario → Cuentas → Añadir cuenta → Otra</b>.</li>
-          <li>Tocá <b>Añadir calendario suscrito</b> y pegá el enlace.</li>
-          <li>Tocá <b>Siguiente</b> y luego <b>Guardar</b>. Listo: aparece el calendario “Arrózame · Reservas”.</li>
-          <li>Opcional: en <b>Ajustes → Calendario → Cuentas → Buscar</b>, elegí “Cada 15 minutos”.</li>
+          <li>En el iPhone abre <b>Ajustes → Calendario → Cuentas → Añadir cuenta → Otra</b>.</li>
+          <li>Toca <b>Añadir calendario suscrito</b> y pega el enlace.</li>
+          <li>Toca <b>Siguiente</b> y luego <b>Guardar</b>. Listo: aparece el calendario “Arrózame · Reservas”.</li>
+          <li>Opcional: en <b>Ajustes → Calendario → Cuentas → Buscar</b>, elige “Cada 15 minutos”.</li>
         </ol>
-        <p class="small muted">El enlace es privado: quien lo tenga ve las reservas. Si se filtra, generá uno nuevo.</p>
+        <p class="small muted">El enlace es privado: quien lo tenga ve las reservas. Si se filtra, genera uno nuevo.</p>
         ${modoDemo ? "" : `<button class="btn sec chico" id="regen">Generar enlace nuevo</button>`}
       </div>
       <div class="tarjeta">
         <h2>Página pública de reservas</h2>
-        <p class="bajada">Compartila en Instagram, en la bio y como respuesta rápida de WhatsApp Business.</p>
+        <p class="bajada">Compártela en Instagram, en la bio y como respuesta rápida de WhatsApp Business.</p>
         <code class="url">${escapar(publica)}</code>
         <button class="btn sec chico" id="copiar-pub">Copiar enlace</button>
       </div>
       <div class="tarjeta" id="t-equipo" style="grid-column:1/-1">
         <h2>Equipo</h2>
-        <p class="bajada">Las personas que van a las paellas. En cada reserva elegís quiénes van y les mandás la orden de compra por WhatsApp.</p>
+        <p class="bajada">Las personas que van a las paellas. En cada reserva eliges quiénes van y les envías la orden de compra por WhatsApp.</p>
         <div class="equipo-lista">${st.personal.length ? st.personal.map((p) => `<div class="persona ${p.activo ? "" : "inactiva"}">
             <div><b>${escapar(p.nombre)}</b><span class="small muted">${p.telefono ? escapar(p.telefono) : "Sin WhatsApp"}${p.activo ? "" : " · inactivo"}</span></div>
             <button type="button" class="btn sec chico" data-toggle-persona="${p.id}">${p.activo ? "Desactivar" : "Activar"}</button></div>`).join("")
@@ -436,7 +436,7 @@ async function vistaAjustes() {
       </div>
       <form class="tarjeta cobro" id="fqr" style="grid-column:1/-1">
         <h2>Cobro del anticipo</h2>
-        <p class="bajada">Subí el QR de tu banco. Desde cada reserva lo enviás por WhatsApp con el monto calculado y queda registrado cuándo se envió.</p>
+        <p class="bajada">Sube el QR de tu banco. Desde cada reserva lo envías por WhatsApp con el monto calculado y queda registrado cuándo se envió.</p>
         <div class="cobro-grid">
           <div class="qr-caja">
             ${c.qr_url ? `<img src="${escapar(c.qr_url)}" alt="QR de cobro actual" id="qr-vista">` : `<div class="qr-vacio" id="qr-vista">Sin QR todavía</div>`}
@@ -475,7 +475,7 @@ async function vistaAjustes() {
         <button class="btn">Guardar ajustes</button>
       </form>
     </div>`;
-  const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast("Copiado"); } catch { toast("Seleccioná el enlace y copialo"); } };
+  const copiar = async (t) => { try { await navigator.clipboard.writeText(t); toast("Copiado"); } catch { toast("Selecciona el enlace y cópialo"); } };
   $("#copiar-cal").onclick = () => copiar(url);
   $("#copiar-pub").onclick = () => copiar(publica);
   $("#regen")?.addEventListener("click", async () => {
@@ -503,7 +503,7 @@ async function vistaAjustes() {
     qrNuevo = a;
     const v = $("#qr-vista"); const img = document.createElement("img");
     img.id = "qr-vista"; img.alt = "Vista previa del QR"; img.src = URL.createObjectURL(a); v.replaceWith(img);
-    toast("Vista previa lista: tocá Guardar cobro");
+    toast("Vista previa lista: toca Guardar cobro");
   };
   $("#fqr").onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; const b = $("button.btn", f);
@@ -553,11 +553,11 @@ function abrirReserva(id) {
   const plantillas = {
     "Confirmar": `¡Hola ${nombre1}! 🥘 Te escribimos de Arrózame para confirmar tu reserva *${r.codigo}* del ${fechaLarga(r.fecha)} a las ${hhmm(r.hora)}.\n\n${items}\nTotal: ${bs(r.total)}\n\nPara asegurar la fecha te pedimos un anticipo del 50% (${bs(r.total / 2)}). ¿Te pasamos el QR?`,
     "Recordatorio": `¡Hola ${nombre1}! Te recordamos que ${r.fecha === sumarDias(hoyISO(), 1) ? "mañana" : "el " + fechaLarga(r.fecha)} a las ${hhmm(r.hora)} llevamos la Paella Experience 🥘 a ${r.direccion || "tu evento"}. ¿Todo en orden con el lugar?`,
-    "Gracias": `¡Gracias ${nombre1} por elegir Arrózame! 🧡 Nos encantaría saber qué tal estuvo. Si te gustó, etiquetanos en Instagram @${st.cfg.instagram}.`,
+    "Gracias": `¡Gracias ${nombre1} por elegir Arrózame! 🧡 Nos encantaría saber qué tal estuvo. Si te gustó, etiquétanos en Instagram @${st.cfg.instagram}.`,
   };
   const c = cajon(`
     <div class="small muted">Reserva</div>
-    <h2 style="font-size:24px;margin-bottom:4px">${escapar(r.codigo)} ${chip(r.estado)}</h2>
+    <h2 style="font-size:24px;margin-bottom:4px">${escapar(r.codigo)} ${chip(r.estado)}${r.evento_grande ? ` <span class="etiqueta grande">Evento grande</span>` : ""}</h2>
     <p class="muted" style="margin-top:0">${ORIGEN[r.origen] || r.origen} · creada ${new Date(r.created_at).toLocaleDateString("es-BO")}</p>
 
     <div class="bloque"><h4>Estado</h4><div class="estados">${ESTADOS.map((e) => `<button data-estado="${e}" class="${r.estado === e ? "activo" : ""}">${ETQ[e]}</button>`).join("")}</div></div>
@@ -569,7 +569,7 @@ function abrirReserva(id) {
       ${st.cfg?.qr_url
         ? `<a class="btn wa chico" id="enviar-qr" target="_blank" rel="noopener" href="https://wa.me/${telWa(cli.telefono)}?text=${encodeURIComponent(mensajeAnticipo(r, nombre1))}">WhatsApp · Enviar QR del anticipo</a>
            <a class="small enlace-qr" href="${escapar(urlPaginaQR(r))}" target="_blank" rel="noopener">Ver lo que recibe el cliente ↗</a>`
-        : `<div class="aviso info" style="margin-bottom:0">Todavía no hay QR de cobro. <a href="#ajustes" id="ir-ajustes-qr">Subilo en Ajustes</a> para poder enviarlo desde acá.</div>`}
+        : `<div class="aviso info" style="margin-bottom:0">Todavía no hay QR de cobro. <a href="#ajustes" id="ir-ajustes-qr">Súbelo en Ajustes</a> para poder enviarlo desde aquí.</div>`}
     </div>
 
     <div class="bloque"><h4>Cliente</h4>
@@ -582,11 +582,11 @@ function abrirReserva(id) {
       ${st.personal.some((p) => p.activo)
         ? `<p class="small muted" style="margin:0 0 8px">¿Quiénes van a este evento?</p>
            <div class="equipo-chips">${st.personal.filter((p) => p.activo || (r.equipo || []).includes(p.id)).map((p) => `<label class="chip-check"><input type="checkbox" value="${p.id}" ${(r.equipo || []).includes(p.id) ? "checked" : ""}><span>${escapar(p.nombre)}</span></label>`).join("")}</div>`
-        : `<div class="aviso info">Todavía no cargaste tu equipo. <a href="#ajustes" id="ir-ajustes-equipo">Agregalo en Ajustes</a>.</div>`}
+        : `<div class="aviso info">Todavía no cargaste tu equipo. <a href="#ajustes" id="ir-ajustes-equipo">Agrégalo en Ajustes</a>.</div>`}
       <div class="estados compra-estado">${Object.entries(COMPRA).map(([k, t]) => `<button type="button" data-compra="${k}" class="${(r.compra_estado || "pendiente") === k ? "activo" : ""}">${t}</button>`).join("")}</div>
       <div class="linea"><span>Orden enviada</span><span>${r.orden_compra_enviada_at ? fechaHora(r.orden_compra_enviada_at) : "Todavía no"}</span></div>
       <div class="envios">${equipoDe(r).filter((p) => p.telefono).map((p) => `<a class="btn wa chico" data-enviar-orden target="_blank" rel="noopener" href="https://wa.me/${telWa(p.telefono)}?text=${encodeURIComponent(ordenCompra(r))}">WhatsApp · ${escapar(p.nombre.split(" ")[0])}</a>`).join("")
-        || `<p class="small muted" style="margin:0">Elegí quiénes van para mandarles la orden por WhatsApp.</p>`}</div>
+        || `<p class="small muted" style="margin:0">Elige quiénes van para enviarles la orden por WhatsApp.</p>`}</div>
       <button type="button" class="btn sec chico" id="copiar-orden">Copiar orden (para pegar en un grupo)</button>
     </div>
 
@@ -635,7 +635,7 @@ function abrirReserva(id) {
 
     <div class="bloque"><h4>Notas</h4>
       ${r.notas_cliente ? `<p class="small" style="margin-top:0"><b>Del cliente:</b> ${escapar(r.notas_cliente)}</p>` : ""}
-      <label class="campo" style="margin:0"><span>Notas internas (solo vos las ves)</span><textarea name="notas_internas">${escapar(r.notas_internas || "")}</textarea></label>
+      <label class="campo" style="margin:0"><span>Notas internas (solo tú las ves)</span><textarea name="notas_internas">${escapar(r.notas_internas || "")}</textarea></label>
     </div>
     <button class="btn" style="width:100%">Guardar cambios</button>
     </form>`);
@@ -670,7 +670,7 @@ function abrirReserva(id) {
   };
   $$("[data-enviar-orden]", c).forEach((a) => a.addEventListener("click", () => { registrarOrden().catch(() => {}); }));
   $("#copiar-orden", c).onclick = async () => {
-    try { await navigator.clipboard.writeText(ordenCompra(r)); toast("Orden copiada: pegala en el grupo"); await registrarOrden(); }
+    try { await navigator.clipboard.writeText(ordenCompra(r)); toast("Orden copiada: pégala en el grupo"); await registrarOrden(); }
     catch { toast("No se pudo copiar"); }
   };
   // gastos
@@ -717,7 +717,7 @@ function abrirReserva(id) {
     const nueva = st.reservas.find((x) => x.id === r.id);
     if (b.dataset.estado === "confirmada" && (nueva?.compra_estado || "pendiente") === "pendiente") {
       const bloque = $("#bloque-compra"); bloque?.classList.add("resaltar"); bloque?.scrollIntoView({ behavior: "smooth", block: "start" });
-      toast("Confirmada · ahora mandá la orden de compra al equipo");
+      toast("Confirmada · ahora envía la orden de compra al equipo");
     }
   };
   f.onsubmit = async (e) => {

@@ -162,3 +162,6 @@ textarea { min-height: 88px; resize: vertical; }
 }
 .etiqueta.registro.terracota { color: var(--terracota-osc); box-shadow: inset 0 0 0 1.5px var(--terracota); }
 .etiqueta.registro.gris { color: var(--gris); box-shadow: inset 0 0 0 1.5px #CFCBC4; }
+
+/* evento grande: tinta con texto amarillo, distinto de los estados */
+.etiqueta.grande { background: var(--tinta); color: var(--amarillo); vertical-align: middle; }
